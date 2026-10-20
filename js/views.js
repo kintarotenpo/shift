@@ -42,6 +42,7 @@ const V = (() => {
     let cls = 'c';
     if (flags.streak) cls += ' streak';
     if (flags.today) cls += ' today';
+    if (flags.me) cls += ' me';
     if (c && c.lk) cls += ' lk';
     if (!c) return `<td class="${cls} e" ${a}><span class="dash">・</span></td>`;
     if (c.t === 'o') {
@@ -59,46 +60,63 @@ const V = (() => {
     let staff = state.staff;
     if (ui.onlyMe && ui.me) staff = staff.filter(p => p.id === ui.me);
     if (!state.staff.length) return `<div class="empty">スタッフが登録されていません。「設定」から追加してください。</div>`;
+    const editor = ui.mode === 'editor';
+    const stores = editor ? state.stores : [];
+    const meCls = p => (ui.me === p.id && !opts.export ? ' me' : '');
 
-    let h = `<div class="table-wrap${opts.export ? ' export' : ''}"><table class="mtable"><thead><tr><th class="name-col">スタッフ</th>`;
+    // 見出し（スタッフが列）
+    let h = `<div class="table-wrap${opts.export ? ' export' : ''}"><table class="mtable"><thead><tr><th class="date-col corner">日付</th>`;
+    for (const p of staff) {
+      h += `<th class="staff-h${meCls(p)}" data-col="${p.id}"><div class="nm">${esc(p.name)}</div>
+        <div class="sub">${esc(p.type)}${editor ? '・' + esc(M.mainLabel(p)) : ''}</div></th>`;
+    }
+    stores.forEach((st, i) => {
+      h += `<th class="store-h${i === 0 ? ' first' : ''}">${sbadge(st)}<div class="sub">${esc(st.name)}</div></th>`;
+    });
+    h += `</tr></thead><tbody>`;
+
+    // 本文（日付が行）
+    const sums = staff.map(() => ({ work: 0, off: 0, paid: 0 }));
     for (let d = 1; d <= N; d++) {
       const hn = U.holidayName(y, m, d);
-      const dot = !opts.export && ui.mode === 'editor' && alerts.dayShort[d] ? `<i class="dot ${alerts.dayShort[d]}"></i>` : '';
-      h += `<th class="dh ${dayCls(y, m, d)}${isToday(y, m, d) ? ' today' : ''}" title="${esc(hn)}" data-goday="${opts.export ? '' : d}">
-        <span class="dn">${d}</span><span class="dw">${WD[U.dow(y, m, d)]}</span>${dot}</th>`;
-    }
-    h += `<th class="sum-col">出勤</th><th class="sum-col">休</th><th class="sum-col">有給</th></tr></thead><tbody>`;
-
-    for (const p of staff) {
-      const row = cells[p.id] || {};
-      let work = 0, off = 0, paid = 0;
-      h += `<tr class="${ui.me === p.id && !opts.export ? 'me' : ''}" data-row="${p.id}"><th class="name-col"><div class="nm">${esc(p.name)}</div>
-        <div class="sub">${esc(p.type)}${ui.mode === 'editor' ? '・' + esc(M.mainLabel(p)) : ''}</div></th>`;
-      for (let d = 1; d <= N; d++) {
-        const c = row[d] || null;
-        if (c && c.t === 'w') work++;
-        else if (c && c.k === 'paid') paid++;
-        else if (c) off++;
-        h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today: isToday(y, m, d) });
-      }
-      const target = +p.offDays;
-      const offCls = ui.mode === 'editor' && !isNaN(target) && off !== target ? ' diff' : '';
-      h += `<td class="sum">${work}</td><td class="sum${offCls}" title="${ui.mode === 'editor' ? '目安 ' + target + '日' : ''}">${off}</td><td class="sum">${paid}</td></tr>`;
-    }
-    h += `</tbody><tfoot>`;
-    for (const st of ui.mode === 'editor' ? state.stores : []) {
-      h += `<tr><th class="name-col foot-name">${sbadge(st)}<span>${esc(st.name)}</span></th>`;
-      for (let d = 1; d <= N; d++) {
+      const today = isToday(y, m, d);
+      const dot = !opts.export && editor && alerts.dayShort[d] ? `<i class="dot ${alerts.dayShort[d]}"></i>` : '';
+      h += `<tr class="${dayCls(y, m, d)}${today ? ' today' : ''}"><th class="date-col dh ${dayCls(y, m, d)}" title="${esc(hn)}" data-goday="${opts.export ? '' : d}">
+        <span class="dn">${d}</span><span class="dw">${WD[U.dow(y, m, d)]}</span>${hn ? `<span class="hn">${esc(hn)}</span>` : ''}${dot}</th>`;
+      staff.forEach((p, i) => {
+        const c = cells[p.id]?.[d] || null;
+        if (c && c.t === 'w') sums[i].work++;
+        else if (c && c.k === 'paid') sums[i].paid++;
+        else if (c) sums[i].off++;
+        h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today, me: !!meCls(p) });
+      });
+      stores.forEach((st, i) => {
+        const first = i === 0 ? ' first' : '';
         const sd = M.storeDay(st, y, m, d);
-        if (!sd) { h += `<td class="cnt closed">定</td>`; continue; }
+        if (!sd) { h += `<td class="cnt closed${first}">定休</td>`; return; }
         let n = 0;
         for (const p of state.staff) { const c = cells[p.id]?.[d]; if (c && c.t === 'w' && c.s === st.id) n++; }
         const s = alerts.storeShort[`${st.id}:${d}`];
         const cls = n < sd.req ? 'ng' : (s ? 'warn' : 'ok');
-        h += `<td class="cnt ${cls}" data-goday="${opts.export ? '' : d}">${n}<small>/${sd.req}</small></td>`;
-      }
-      h += `<td colspan="3"></td></tr>`;
+        h += `<td class="cnt ${cls}${first}" data-goday="${opts.export ? '' : d}">${n}<small>/${sd.req}</small></td>`;
+      });
+      h += `</tr>`;
     }
+
+    // 集計（行）
+    h += `</tbody><tfoot>`;
+    const rows = [['出勤', 'work'], ['休', 'off'], ['有給', 'paid']];
+    rows.forEach(([label, key], ri) => {
+      h += `<tr class="${ri === 0 ? 'first' : ''}"><th class="date-col sum-h">${label}</th>`;
+      staff.forEach((p, i) => {
+        const v = sums[i][key];
+        const target = +p.offDays;
+        const diff = key === 'off' && editor && !isNaN(target) && v !== target;
+        h += `<td class="sum${diff ? ' diff' : ''}${meCls(p)}" ${key === 'off' && editor ? `title="目安 ${target}日"` : ''}>${v}</td>`;
+      });
+      if (stores.length) h += `<td colspan="${stores.length}" class="first"></td>`;
+      h += `</tr>`;
+    });
     h += `</tfoot></table></div>`;
     if (!opts.export) h += legend(state);
     return h;

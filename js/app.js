@@ -294,9 +294,11 @@ const App = (() => {
       const a = alerts.list[+t.dataset.i];
       if (a.type === 'streak') {
         ui.tab = 'month'; render();
-        const row = document.querySelector(`tr[data-row="${a.sid}"]`);
-        row?.scrollIntoView({ block: 'center' });
-        row?.classList.add('flash'); setTimeout(() => row?.classList.remove('flash'), 1600);
+        const col = [...document.querySelectorAll(`[data-col="${a.sid}"], td.c[data-sid="${a.sid}"]`)];
+        col[0]?.scrollIntoView({ inline: 'center', block: 'nearest' });
+        document.querySelector(`td.c[data-sid="${a.sid}"][data-d="${a.from}"]`)?.scrollIntoView({ block: 'center', inline: 'center' });
+        col.forEach(e => e.classList.add('flash'));
+        setTimeout(() => col.forEach(e => e.classList.remove('flash')), 1600);
       } else { ui.day = a.d; ui.tab = 'day'; render(); }
     },
     'req-input': openRequestModal,
