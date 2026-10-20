@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SHIFT BOARD</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=7">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <img src="assets/logo.svg" alt="" class="logo">
+    <span class="brand-name" id="brandName">SHIFT BOARD</span>
+  </div>
+  <div class="month-nav">
+    <button class="icon-btn" data-act="prev-month" id="prevMonth" aria-label="前の月">‹</button>
+    <div class="month-label" id="monthLabel"></div>
+    <button class="icon-btn" data-act="next-month" id="nextMonth" aria-label="次の月">›</button>
+  </div>
+  <div class="header-right">
+    <span id="statusBadge" class="badge"></span>
+    <span id="modeBadge" class="badge mode"></span>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab" data-tab="month">月次</button>
+  <button class="tab" data-tab="day">日別</button>
+  <button class="tab" data-tab="leave" data-editor-only>有給</button>
+  <button class="tab" data-tab="settings" data-editor-only>設定</button>
+</nav>
+
+<div class="toolbar" id="toolbar"></div>
+<div id="alertBar"></div>
+<main id="view"></main>
+
+<div id="modalRoot"></div>
+<div id="toast" class="toast"></div>
+<div id="busy" class="busy" hidden><div class="spinner"></div><div id="busyText"></div></div>
+<div id="exportStage" aria-hidden="true"></div>
+<input type="file" id="csvFile" accept=".csv,text/csv" hidden>
+<input type="file" id="jsonFile" accept=".json,application/json" hidden>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="js/util.js?v=7"></script>
+<script src="js/db.js?v=7"></script>
+<script src="js/scheduler.js?v=7"></script>
+<script src="js/views.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
+</body>
+</html>
