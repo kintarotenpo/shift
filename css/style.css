@@ -440,6 +440,14 @@ input[type=color] { width: 44px; height: 34px; border: 1.5px solid var(--line); 
 .pick:hover { border-color: var(--k); background: var(--y-soft); }
 .pick .muted { font-size: 12px; flex: 1; }
 
+/* アプリ内ブラウザ向け */
+.inapp-note { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  background: var(--orange-soft); color: #8a4b00; border-radius: 10px; padding: 8px 12px; font-size: 12px; font-weight: 700; }
+a.btn, a.share-btn { text-decoration: none; color: inherit; }
+a.btn.dark { color: var(--y); }
+.save-preview { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #fafafa; }
+.save-preview img { display: block; width: 100%; height: auto; -webkit-touch-callout: default; user-select: auto; }
+
 /* 確認ダイアログ */
 .confirm-layer { z-index: 120; align-items: center !important; padding: 16px !important; }
 .modal.confirm { max-width: 420px; border-radius: 18px !important; }
