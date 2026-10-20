@@ -57,6 +57,16 @@ const App = (() => {
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
+  /* LINE などアプリ内ブラウザ（ファイルのダウンロード不可） */
+  const UA = navigator.userAgent;
+  const IS_LINE = /\bLine\//i.test(UA);
+  const IN_APP = IS_LINE || /FBAN|FBAV|Instagram|MicroMessenger|KAKAOTALK/i.test(UA);
+  /** LINE で開いたとき外部ブラウザ（Safari / Chrome）で開かせるURL */
+  function externalUrl(href = location.href) {
+    const u = new URL(href);
+    u.searchParams.set('openExternalBrowser', '1');
+    return u.toString();
+  }
   const ymLabel = () => { const [y, m] = U.parseYM(ui.ym); return `${y}年${m}月`; };
   const statusLabel = () => (S().months[ui.ym]?.status === 'final' ? '確定' : '暫定');
 
@@ -122,11 +132,13 @@ const App = (() => {
     const tb = $('#toolbar');
     if (ui.tab === 'leave' || ui.tab === 'settings') { tb.innerHTML = ''; tb.hidden = true; return; }
     tb.hidden = false;
+    const inAppNote = IN_APP ? `<div class="inapp-note"><span>アプリ内ブラウザでは保存機能が一部使えません</span>
+      ${IS_LINE ? `<a class="btn sm dark" href="${U.esc(externalUrl())}">ブラウザで開く</a>` : '<span class="tiny">右上のメニューから「ブラウザで開く」を選んでください</span>'}</div>` : '';
     const exportMenu = `<details class="dd"><summary class="btn">ダウンロード</summary><div class="menu">
       <button data-act="export-pdf">PDFで保存</button><button data-act="export-jpg">JPG画像で保存</button></div></details>`;
     if (ui.mode === 'viewer') {
       const st = S();
-      tb.innerHTML = `<div class="tb-group">
+      tb.innerHTML = inAppNote + `<div class="tb-group">
         <label class="me-sel"><span>自分の名前</span><select data-change="me"><option value="">選択してください</option>
           ${st.staff.map(p => `<option value="${p.id}" ${ui.me === p.id ? 'selected' : ''}>${U.esc(p.name)}</option>`).join('')}</select></label>
         ${ui.me ? `<label class="chk"><input type="checkbox" data-change="onlyMe" ${ui.onlyMe ? 'checked' : ''}> 自分だけ表示</label>` : ''}
@@ -134,7 +146,7 @@ const App = (() => {
       return;
     }
     const mon = S().months[ui.ym];
-    tb.innerHTML = `<div class="tb-group">
+    tb.innerHTML = inAppNote + `<div class="tb-group">
         <button class="btn" data-act="req-input">希望休を入力</button>
         <button class="btn dark" data-act="generate">自動作成</button>
         <button class="btn" data-act="fix">アラート自動調整</button>
@@ -334,6 +346,10 @@ const App = (() => {
       catch (e) { $('#shareMsg').select(); document.execCommand('copy'); toast('コピーしました'); }
     },
     'share-image': shareImage,
+    'sheet-share': async () => {
+      try { await navigator.share({ files: [sheetFile], title: `${ymLabel()} シフト` }); }
+      catch (e) { if (e.name !== 'AbortError') toast('共有できませんでした。画像を長押しして保存してください'); }
+    },
     'cell-save': saveCell,
     'add-to-store': t => openPicker(t.dataset.store),
     'pick-staff': t => openCellEditor(t.dataset.sid, ui.day, { store: t.dataset.store }),
@@ -702,6 +718,7 @@ const App = (() => {
     busy(true, kind === 'pdf' ? 'PDFを作成しています…' : '画像を作成しています…');
     try {
       const { canvas, name } = await renderCanvas();
+      if (IN_APP) { busy(false); await openSaveSheet(canvas, name, kind); return; }
       if (kind === 'pdf') {
         if (!window.jspdf) throw new Error('PDFライブラリを読み込めませんでした');
         download(buildPdf(canvas).output('blob'), name + '.pdf');
@@ -719,17 +736,38 @@ const App = (() => {
         try { await navigator.share({ files: [file], title: `${ymLabel()} シフト` }); return; }
         catch (e) { if (e.name === 'AbortError') return; }
       }
+      if (IN_APP) { await openSaveSheet(canvas, name, 'jpg'); return; }
       download(file, file.name);
       toast('画像を保存しました（この端末は画像の直接共有に未対応です）');
     } catch (err) { console.error(err); busy(false); toast(err.message); }
   }
+
+  /** アプリ内ブラウザ用：画像を表示して長押し保存・共有・外部ブラウザへ誘導 */
+  async function openSaveSheet(canvas, name, kind) {
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const file = new File([await toBlob(canvas)], name + '.jpg', { type: 'image/jpeg' });
+    const canFile = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+    openModal(`${modalHead(kind === 'pdf' ? 'PDFの保存' : '画像の保存')}
+      <div class="modal-body">
+        <p class="note warn">LINEなどのアプリ内ブラウザでは、ファイルを直接ダウンロードできません。${kind === 'pdf' ? '<br>PDFは「ブラウザで開く」から保存してください。' : ''}</p>
+        <p class="hint"><b>下の画像を長押し</b>して「画像を保存」（または「写真に追加」）を選ぶと保存できます。</p>
+        <div class="save-preview"><img src="${dataUrl}" alt="${U.esc(name)}"></div>
+        <div class="share-grid">
+          ${canFile ? '<button class="share-btn" data-act="sheet-share"><span class="sicon-b">↗</span>画像を共有・保存</button>' : ''}
+          ${IS_LINE ? `<a class="share-btn" href="${U.esc(externalUrl())}"><span class="sicon-b">⇱</span>Safari / Chromeで開く</a>` : ''}
+        </div>
+        ${IS_LINE ? '' : '<p class="tiny muted">PDFで保存したい場合は、画面右上のメニューから「ブラウザで開く」を選んでください。</p>'}
+      </div>`, 'wide');
+    sheetFile = file;
+  }
+  let sheetFile = null;
 
   /* ---------- 共有 ---------- */
   async function openShare() {
     let url;
     try {
       url = ui.mode === 'viewer' ? location.href
-        : `${location.origin}${location.pathname}#v=${await Share.encode(S(), ui.ym)}`;
+        : `${location.origin}${location.pathname}?openExternalBrowser=1#v=${await Share.encode(S(), ui.ym)}`;
     } catch (e) { console.error(e); toast('共有リンクを作成できませんでした'); return; }
     const status = statusLabel();
     const [y, m] = U.parseYM(ui.ym);
