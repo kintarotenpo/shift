@@ -143,6 +143,37 @@ const V = (() => {
     return h + '</div></details>';
   }
 
+  /* ---------- 日別（スマホ用：縦タイムライン） ---------- */
+  function verticalTimeline({ st, sd, list, d, minT, hours, pct, wid }) {
+    let ticks = '';
+    for (let k = 0; k <= hours; k++) ticks += `<span class="vt-tick" style="top:${pct(minT + k * 60)}">${minT / 60 + k}:00</span>`;
+    const zone = sd ? `<div class="vt-zone" style="top:${pct(sd.open)};height:${wid(sd.open, sd.close)}"></div>` : '';
+    let head = '<div class="vt-axis-h"></div>', cols = '';
+    if (!list.length) {
+      head += '<div class="vt-name muted">未配置</div>';
+      cols += `<div class="vt-col">${zone}</div>`;
+    }
+    for (const { p, c } of list) {
+      head += `<div class="vt-name"><span class="nm">${esc(p.name)}</span><span class="ty">${esc(p.type)}</span></div>`;
+      cols += `<div class="vt-col">${zone}<div class="vbar${c.lk ? ' lk' : ''}" data-sid="${p.id}" data-d="${d}"
+        style="top:${pct(c.st)};height:${wid(c.st, c.en)};background:${st.color};color:${U.contrastText(st.color)}">
+        <span>${U.toHM(c.st)}</span><span>${U.toHM(c.en)}</span></div></div>`;
+    }
+    if (sd) {
+      head += '<div class="vt-name vt-cov-h">人数</div>';
+      let slots = '';
+      for (let t = sd.open; t < sd.close; t += 30) {
+        const te = Math.min(t + 30, sd.close);
+        const n = list.filter(x => x.c.st <= t && x.c.en >= te).length;
+        slots += `<div class="vslot ${n < sd.req ? 'ng' : 'ok'}" style="top:${pct(t)};height:${wid(t, te)}">${n}</div>`;
+      }
+      cols += `<div class="vt-col vt-cov">${slots}</div>`;
+    }
+    return `<div class="vt-scroll"><div class="vt" style="--hours:${hours}">
+      <div class="vt-head">${head}</div>
+      <div class="vt-body"><div class="vt-axis">${ticks}</div>${cols}</div></div></div>`;
+  }
+
   /* ---------- 日別 ---------- */
   function day(state, ui, alerts, opts = {}) {
     const [y, m] = U.parseYM(ui.ym), N = U.daysInMonth(y, m), d = ui.day;
@@ -174,6 +205,7 @@ const V = (() => {
       <h2>${m}月${d}日<span class="dw ${dayCls(y, m, d)}">（${WD[w]}）</span>${hn ? `<span class="hol">${esc(hn)}</span>` : ''}</h2>
       ${opts.export ? '' : `<button class="icon-btn light" data-act="next-day" ${d >= N ? 'disabled' : ''}>›</button>`}</div>`;
 
+    const vertical = !opts.export && window.matchMedia('(max-width: 760px)').matches;
     const scale = () => {
       let t = '';
       for (let k = 0; k <= hours; k++) t += `<span class="tick" style="left:${pct(minT + k * 60)}">${(minT / 60) + k}</span>`;
@@ -194,7 +226,9 @@ const V = (() => {
       h += `<section class="store-card" style="--sc:${st.color}">
         <header class="sc-head">${sicon(st)}<div class="sc-title"><h3>${esc(st.name)}</h3>
         <div class="sc-meta">${sd ? `${U.toHM(sd.open)}〜${U.toHM(sd.close)}・必要 ${sd.req}名・配置 ${list.length}名` : '本日は定休日です'}</div></div>${chip}</header>`;
-      if (sd || list.length) {
+      if ((sd || list.length) && vertical) {
+        h += verticalTimeline({ st, sd, list, d, minT, hours, pct, wid });
+      } else if (sd || list.length) {
         h += `<div class="tl-scroll"><div class="tl" style="--hours:${hours}">
           <div class="tl-row scale"><div class="tl-label"></div><div class="tl-track">${scale()}</div></div>`;
         if (!list.length) h += `<div class="tl-row"><div class="tl-label muted">未配置</div><div class="tl-track"></div></div>`;

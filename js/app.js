@@ -97,6 +97,9 @@ const App = (() => {
     document.addEventListener('toggle', onToggle, true);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
     window.addEventListener('hashchange', () => location.reload());
+    const mq = window.matchMedia('(max-width: 760px)');
+    const onBp = () => { if (ui.tab === 'day') { lastViewKey = ''; renderView(); } };
+    if (mq.addEventListener) mq.addEventListener('change', onBp); else mq.addListener(onBp);
     $('#csvFile').addEventListener('change', csvImport);
     $('#jsonFile').addEventListener('change', backupImport);
     render();
@@ -183,20 +186,42 @@ const App = (() => {
     </div>`;
   }
 
+  let lastViewKey = '';
   function renderView() {
     const st = S(), v = $('#view');
+    // 同じ画面の再描画（編集後など）ではスクロール位置を保つ
+    const key = `${ui.tab}|${ui.ym}|${ui.tab === 'day' ? ui.day : ''}`;
+    const same = key === lastViewKey;
+    const sameStrip = lastViewKey.startsWith(`day|${ui.ym}|`) && ui.tab === 'day';
+    const winY = window.scrollY;
+    const keepScroll = sel => [...v.querySelectorAll(sel)].map(e => [e.scrollTop, e.scrollLeft]);
+    const wraps = keepScroll('.table-wrap, .tl-scroll, .vt-scroll');
+    const strip = v.querySelector('.day-strip')?.scrollLeft;
+
     if (ui.tab === 'month') v.innerHTML = (ui.mode === 'viewer' && ui.me ? V.myShift(st, ui) : '') + V.month(st, ui, alerts);
     else if (ui.tab === 'day') v.innerHTML = V.day(st, ui, alerts);
     else if (ui.tab === 'leave') v.innerHTML = V.leave(st, ui);
     else v.innerHTML = V.settings(st, ui);
-    if (ui.tab === 'day') v.querySelector('.ds.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+
+    if (same) {
+      v.querySelectorAll('.table-wrap, .tl-scroll, .vt-scroll').forEach((e, i) => {
+        if (wraps[i]) [e.scrollTop, e.scrollLeft] = wraps[i];
+      });
+      window.scrollTo(0, winY);
+    }
+    if (ui.tab === 'day') {
+      const sEl = v.querySelector('.day-strip'), a = v.querySelector('.ds.active');
+      if (sEl && sameStrip && strip != null && same) sEl.scrollLeft = strip;
+      else if (sEl && a) sEl.scrollLeft = a.offsetLeft - sEl.clientWidth / 2 + a.offsetWidth / 2;
+    }
+    lastViewKey = key;
   }
 
   /* ---------- イベント ---------- */
   function onClick(e) {
     document.querySelectorAll('details.dd[open], details.multi[open]').forEach(dt => { if (!dt.contains(e.target)) dt.open = false; });
     if (e.target.matches('[data-overlay]')) { closeModal(); return; }
-    const t = e.target.closest('[data-act],[data-tab],[data-goday],td.c,.bar,.off-item.clickable');
+    const t = e.target.closest('[data-act],[data-tab],[data-goday],td.c,.bar,.vbar,.off-item.clickable');
     if (!t) return;
     if (t.dataset.tab) { ui.tab = t.dataset.tab; render(); window.scrollTo({ top: 0 }); return; }
     if (t.dataset.act) {
