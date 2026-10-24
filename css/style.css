@@ -202,7 +202,13 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
 .c.streak { box-shadow: inset 4px 0 0 var(--orange); }
 .c.streak.w { background-image: linear-gradient(rgba(232, 137, 12, .1), rgba(232, 137, 12, .1)) !important; }
 .c.lk::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: #000; opacity: .45; }
-.mtable tr.today > td.c { border-top: 2px solid var(--y-deep); border-bottom: 2px solid var(--y-deep); }
+.mtable tr.today > td { /* 今日の行：店舗色の上から黄色を重ね、上下を線で囲む */
+  background-image: linear-gradient(rgba(250, 210, 56, .32), rgba(250, 210, 56, .32)) !important;
+  border-top: 2px solid var(--y-deep); border-bottom: 2px solid var(--y-deep);
+}
+.mtable tr.today > th.dh { border-top: 2px solid var(--y-deep); border-bottom: 2px solid var(--y-deep); }
+.dh .today-tag { display: table; margin: 1px 0 2px; padding: 0 6px; border-radius: 4px;
+  background: var(--k); color: var(--y); font-size: 9px; font-weight: 900; line-height: 15px; }
 .sb {
   display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 4px; border-radius: 6px;
   font-size: 11px; font-weight: 900; line-height: 1;
@@ -515,7 +521,10 @@ a.btn.dark { color: var(--y); }
 .export-sheet .store-card { box-shadow: none; border: 1px solid var(--line); border-top: 5px solid var(--sc); }
 .export-sheet .tl-scroll { overflow: visible; }
 .export-sheet .off-panel { box-shadow: none; border: 1px solid var(--line); }
-.export-sheet .mtable tr.today > td.c { border-top-width: 1px; border-bottom-width: 1px; border-color: var(--line2); }
+.export-sheet .mtable tr.today > td { background-image: none !important; border-top: 0; border-bottom: 1px solid var(--line2); }
+.export-sheet .mtable tr.today > td.c.streak.w { background-image: linear-gradient(rgba(232, 137, 12, .1), rgba(232, 137, 12, .1)) !important; }
+.export-sheet .mtable tr.today > th.dh { border-top: 0; border-bottom: 1px solid var(--line2); }
+.export-sheet .dh .today-tag { display: none; }
 .export-sheet .mtable tr.today .dh { background: #fff !important; }
 .export-sheet .mtable tr.sat.today .dh { background: #F3F7FF !important; }
 .export-sheet .mtable tr.sun.today .dh { background: #FFF4F3 !important; }
