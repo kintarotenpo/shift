@@ -23,6 +23,7 @@ const Scheduler = (() => {
       y, m, N, days, staff: state.staff, S: state.staff.length,
       maxC: +state.settings.maxConsecutive || 5,
       useApr: state.staff.some(p => p.appraiser),
+      aprStores: new Set(state.stores.filter(st => st.aprAlert !== false).map(st => st.id)), // 査定員が必要な店舗
       prevTail: state.staff.map(p => M.prevTail(state, ym, p.id)),
     };
   }
@@ -112,10 +113,10 @@ const Scheduler = (() => {
       const isA = e => !!ctx.staff[e.i].appraiser;
       const aCount = id => res[id].filter(isA).length;
       for (const t of day.open) {
-        if (aCount(t.id)) continue;
+        if (!ctx.aprStores.has(t.id) || aCount(t.id)) continue;
         let done = false;
         for (const o of day.open) {
-          if (done || o.id === t.id || aCount(o.id) < 2) continue;
+          if (done || o.id === t.id || aCount(o.id) < (ctx.aprStores.has(o.id) ? 2 : 1)) continue;
           for (const e of res[o.id]) {
             if (e.lk || !isA(e) || !can(ctx, e.i, t.id)) continue;
             const x = res[t.id].find(x => !x.lk && !isA(x) && can(ctx, x.i, o.id));
@@ -126,7 +127,7 @@ const Scheduler = (() => {
           }
         }
       }
-      for (const o of day.open) if (!aCount(o.id)) noApr++;
+      for (const o of day.open) if (ctx.aprStores.has(o.id) && !aCount(o.id)) noApr++;
     }
     let short = 0, hours = 0;
     for (const o of day.open) { short += Math.max(0, o.req - res[o.id].length); hours += hourDef(ctx, res[o.id], o); }
@@ -369,7 +370,7 @@ const Alerts = {
           out.storeShort[`${st.id}:${d}`] = es.length < sd.req ? 'ng' : 'warn';
           out.dayShort[d] = out.dayShort[d] || 'warn';
         }
-        if (useApr && !es.some(e => e.apr)) {
+        if (useApr && st.aprAlert !== false && !es.some(e => e.apr)) {
           out.list.push({ type: 'appraiser', d, store: st.id });
           out.dayShort[d] = 'ng';
           out.storeShort[`${st.id}:${d}`] = out.storeShort[`${st.id}:${d}`] || 'warn';

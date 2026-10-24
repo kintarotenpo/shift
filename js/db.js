@@ -41,7 +41,7 @@ const DB = (() => {
   function migrate(s) {
     s.settings = Object.assign({ appName: 'SHIFT BOARD', maxConsecutive: 5 }, s.settings || {});
     s.stores = (s.stores || []).map(st => Object.assign({
-      short: '', icon: '', color: '#999999', allOpen: false, closedDays: [], closedOnHolidays: false, closedDates: '',
+      short: '', icon: '', color: '#999999', allOpen: false, closedDays: [], closedOnHolidays: false, closedDates: '', aprAlert: true,
       hours: { wd: { open: '10:00', close: '19:00' }, hol: { open: '10:00', close: '19:00' } }, req: { wd: 1, hol: 1 },
     }, st));
     s.staff = (s.staff || []).map(p => Object.assign({

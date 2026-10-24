@@ -393,7 +393,7 @@ const App = (() => {
         id, name: `新しい店舗${S().stores.length + 1}`, short: '新', icon: '',
         color: ['#F5A524', '#3B82F6', '#10B981', '#EF4444', '#8B5CF6', '#EC4899'].find(c => !used.has(c)) || '#64748B',
         hours: { wd: { open: '10:00', close: '19:00' }, hol: { open: '10:00', close: '19:00' } },
-        req: { wd: 1, hol: 1 }, allOpen: false, closedDays: [], closedOnHolidays: false, closedDates: '',
+        req: { wd: 1, hol: 1 }, allOpen: false, closedDays: [], closedOnHolidays: false, closedDates: '', aprAlert: true,
       });
       ui.openCards.add(id); DB.save(); render();
       setTimeout(() => document.querySelector(`[data-card="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);

@@ -343,6 +343,8 @@ const V = (() => {
           <div><span class="tag">平日・土</span><input type="number" min="0" max="30" class="w-num" ${b('req.wd', 'data-type="num"')} value="${esc(st.req.wd)}"> 名</div>
           <div><span class="tag sun">日・祝</span><input type="number" min="0" max="30" class="w-num" ${b('req.hol', 'data-type="num"')} value="${esc(st.req.hol)}"> 名</div>
           <span class="hint">営業時間中、常にこの人数がいる状態を目標にします</span></div></div>
+        <div class="f-row"><label>査定員</label><div><label class="switch"><input type="checkbox" ${b('aprAlert', 'data-type="bool"')} ${st.aprAlert !== false ? 'checked' : ''}><span></span>査定員不在アラートを出す</label>
+          <span class="hint">OFFにすると、この店舗は査定員がいなくてもアラートを出さず、自動作成でも査定員の配置を求めません</span></div></div>
         <div class="f-row"><label>定休日</label><div class="closed-edit">
           <label class="switch"><input type="checkbox" ${b('allOpen', 'data-type="bool" data-rerender="1"')} ${st.allOpen ? 'checked' : ''}><span></span>年中無休</label>
           <div class="wd-chips${st.allOpen ? ' disabled' : ''}">
