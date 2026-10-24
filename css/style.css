@@ -311,6 +311,37 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
 .slot { position: absolute; top: 2px; bottom: 2px; display: grid; place-items: center; font-size: 10px; font-weight: 700; border-right: 1px solid #fff; }
 .slot.ok { background: var(--green-soft); color: var(--green); }
 .slot.ng { background: var(--red); color: #fff; }
+/* 縦タイムライン（スマホ） */
+.vt-scroll { overflow-x: auto; padding: 0 12px 14px; }
+.vt { min-width: 100%; }
+.vt-head, .vt-body { display: flex; }
+.vt-head { padding-bottom: 12px; }
+.vt-axis-h, .vt-axis { width: 44px; flex: none; }
+.vt-name { flex: 1; min-width: 64px; text-align: center; display: flex; flex-direction: column; line-height: 1.2; font-size: 13px; padding: 0 2px; }
+.vt-name .nm { font-weight: 700; }
+.vt-name .ty { font-size: 10px; color: var(--muted); }
+.vt-name.vt-cov-h, .vt-col.vt-cov { flex: none; width: 40px; min-width: 40px; }
+.vt-name.vt-cov-h { font-size: 10px; color: var(--muted); justify-content: flex-end; }
+.vt-body { height: calc(var(--hours) * 44px); position: relative; }
+.vt-axis { position: relative; }
+.vt-tick { position: absolute; right: 6px; transform: translateY(-50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
+.vt-col {
+  flex: 1; min-width: 64px; position: relative; border-left: 1px solid var(--line2);
+  background-image: linear-gradient(to bottom, var(--line2) 1px, transparent 1px);
+  background-size: 100% calc(100% / var(--hours));
+  border-bottom: 1px solid var(--line2);
+}
+.vt-zone { position: absolute; left: 0; right: 0; background: rgba(250, 210, 56, .1); }
+.vbar {
+  position: absolute; left: 5px; right: 5px; border-radius: 9px; display: flex; flex-direction: column; justify-content: space-between;
+  align-items: center; padding: 5px 2px; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, .15); overflow: hidden;
+}
+.viewer .vbar { cursor: default; }
+.vbar.lk::before { content: '●'; font-size: 7px; position: absolute; top: 50%; opacity: .6; }
+.vt-col.vt-cov { background-image: none; border-left: 1px dashed var(--line); margin-left: 4px; }
+.vslot { position: absolute; left: 3px; right: 3px; display: grid; place-items: center; font-size: 10px; font-weight: 700; border-bottom: 1px solid #fff; }
+.vslot.ok { background: var(--green-soft); color: var(--green); }
+.vslot.ng { background: var(--red); color: #fff; }
 .closed-note { padding: 0 16px 16px; color: var(--muted); }
 .off-panel { margin-top: 14px; }
 .off-list { display: flex; flex-wrap: wrap; gap: 8px; }
