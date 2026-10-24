@@ -91,7 +91,7 @@ const V = (() => {
       const today = isToday(y, m, d);
       const dot = !opts.export && editor && alerts.dayShort[d] ? `<i class="dot ${alerts.dayShort[d]}"></i>` : '';
       h += `<tr class="${dayCls(y, m, d)}${today ? ' today' : ''}"><th class="date-col dh ${dayCls(y, m, d)}" title="${esc(hn)}" data-goday="${opts.export ? '' : d}">
-        <span class="dn">${d}</span><span class="dw">${WD[U.dow(y, m, d)]}</span>${hn ? `<span class="hn">${esc(hn)}</span>` : ''}${dot}</th>`;
+        <span class="dn">${d}</span><span class="dw">${WD[U.dow(y, m, d)]}</span>${today && !opts.export ? '<span class="today-tag">今日</span>' : ''}${hn ? `<span class="hn">${esc(hn)}</span>` : ''}${dot}</th>`;
       staff.forEach((p, i) => {
         const c = cells[p.id]?.[d] || null;
         if (c && c.t === 'w') sums[i].work++;

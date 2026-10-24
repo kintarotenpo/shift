@@ -203,6 +203,12 @@ const App = (() => {
     else if (ui.tab === 'leave') v.innerHTML = V.leave(st, ui);
     else v.innerHTML = V.settings(st, ui);
 
+    // 月次表を開いたとき、今日の行が見える位置までスクロール
+    if (!same && ui.tab === 'month') {
+      const tw = v.querySelector('.table-wrap'), row = v.querySelector('.mtable tbody tr.today');
+      const head = v.querySelector('.mtable thead');
+      if (tw && row) tw.scrollTop = Math.max(0, row.offsetTop - (head ? head.offsetHeight : 0) - row.offsetHeight * 2);
+    }
     if (same) {
       v.querySelectorAll('.table-wrap, .tl-scroll, .vt-scroll').forEach((e, i) => {
         if (wraps[i]) [e.scrollTop, e.scrollLeft] = wraps[i];
