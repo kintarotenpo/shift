@@ -8,6 +8,9 @@ const V = (() => {
     paid: { s: '有給', c: 'o-paid', full: '休(有給)' },
     auto: { s: '自動', c: 'o-auto', full: '休(自動)' },
   };
+  // 閲覧者には休みの区分を見せない（すべてグレーの「休」）
+  const OFF_VIEW = { s: '', c: 'o-view', full: '休' };
+  const offOf = (c, ui) => (ui && ui.mode === 'viewer' ? OFF_VIEW : (OFF[c.k] || OFF.auto));
   const TYPES = ['社員', 'パート', '一時雇用'];
   const PRESETS = ['#F5A524', '#3B82F6', '#10B981', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#64748B'];
 
@@ -26,13 +29,19 @@ const V = (() => {
     return `<span class="sicon ${size} ph" style="background:${st.color};color:${U.contrastText(st.color)}">${esc((st.short || st.name).slice(0, 2))}</span>`;
   }
 
-  function legend(state) {
+  function legend(state, ui) {
+    if (ui && ui.mode === 'viewer') {
+      return `<div class="legend">
+        ${state.stores.map(s => `<span class="lg">${sbadge(s)}${esc(s.name)}</span>`).join('')}
+        <span class="lg"><span class="offchip o-view">休</span>休み</span></div>`;
+    }
     return `<div class="legend">
       ${state.stores.map(s => `<span class="lg">${sbadge(s)}${esc(s.name)}</span>`).join('')}
       <span class="lg"><span class="offchip o-req">休</span>希望休</span>
       <span class="lg"><span class="offchip o-paid">休</span>有給</span>
       <span class="lg"><span class="offchip o-auto">休</span>自動休</span>
       <span class="lg"><span class="streak-chip"></span>連勤超過</span>
+      <span class="lg"><span class="apr">査</span>査定員</span>
     </div>`;
   }
 
@@ -46,8 +55,8 @@ const V = (() => {
     if (c && c.lk) cls += ' lk';
     if (!c) return `<td class="${cls} e" ${a}><span class="dash">・</span></td>`;
     if (c.t === 'o') {
-      const o = OFF[c.k] || OFF.auto;
-      return `<td class="${cls} o ${o.c}" ${a}><span class="ol">休</span><span class="os">${o.s}</span></td>`;
+      const o = offOf(c, flags.ui);
+      return `<td class="${cls} o ${o.c}" ${a}><span class="ol">休</span>${o.s ? `<span class="os">${o.s}</span>` : ''}</td>`;
     }
     const st = state.stores.find(s => s.id === c.s);
     const bg = st ? U.tint(st.color, 0.14) : '#fff';
@@ -67,7 +76,7 @@ const V = (() => {
     // 見出し（スタッフが列）
     let h = `<div class="table-wrap${opts.export ? ' export' : ''}"><table class="mtable"><thead><tr><th class="date-col corner">日付</th>`;
     for (const p of staff) {
-      h += `<th class="staff-h${meCls(p)}" data-col="${p.id}"><div class="nm">${esc(p.name)}</div>
+      h += `<th class="staff-h${meCls(p)}" data-col="${p.id}"><div class="nm">${esc(p.name)}${editor && p.appraiser ? '<span class="apr">査</span>' : ''}</div>
         <div class="sub">${esc(p.type)}${editor ? '・' + esc(M.mainLabel(p)) : ''}</div></th>`;
     }
     stores.forEach((st, i) => {
@@ -88,7 +97,7 @@ const V = (() => {
         if (c && c.t === 'w') sums[i].work++;
         else if (c && c.k === 'paid') sums[i].paid++;
         else if (c) sums[i].off++;
-        h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today, me: !!meCls(p) });
+        h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today, me: !!meCls(p), ui });
       });
       stores.forEach((st, i) => {
         const first = i === 0 ? ' first' : '';
@@ -118,7 +127,7 @@ const V = (() => {
       h += `</tr>`;
     });
     h += `</tfoot></table></div>`;
-    if (!opts.export) h += legend(state);
+    if (!opts.export) h += legend(state, ui);
     return h;
   }
 
@@ -132,7 +141,7 @@ const V = (() => {
       const c = row[d];
       let body;
       if (!c) body = '<span class="muted">—</span>';
-      else if (c.t === 'o') { const o = OFF[c.k] || OFF.auto; body = `<span class="offchip ${o.c}">休</span><span class="my-sub">${o.s}</span>`; }
+      else if (c.t === 'o') { const o = offOf(c, ui); body = `<span class="offchip ${o.c}">休</span>${o.s ? `<span class="my-sub">${o.s}</span>` : ''}`; }
       else {
         const st = state.stores.find(s => s.id === c.s);
         body = `${sbadge(st)}<span class="my-st">${esc(st ? st.name : '')}</span><span class="my-tm">${U.toHM(c.st)}-${U.toHM(c.en)}</span>`;
@@ -218,10 +227,11 @@ const V = (() => {
         .filter(x => x.c && x.c.t === 'w' && x.c.s === st.id)
         .sort((a, b) => a.c.st - b.c.st || a.c.en - b.c.en);
       const shorts = alerts.list.filter(a => a.type === 'short' && a.d === d && a.store === st.id);
-      let chip = '';
+      const noApr = ui.mode === 'editor' && alerts.list.some(a => a.type === 'appraiser' && a.d === d && a.store === st.id);
+      let chip = noApr ? '<span class="chip ng">査定員なし</span> ' : '';
       if (!sd) chip = '<span class="chip gray">定休日</span>';
-      else if (shorts.length) chip = `<span class="chip ng">不足 ${shorts.map(a => `${U.shortHM(a.from)}-${U.shortHM(a.to)}`).join(' / ')}</span>`;
-      else chip = '<span class="chip ok">充足</span>';
+      else if (shorts.length) chip += `<span class="chip ng">不足 ${shorts.map(a => `${U.shortHM(a.from)}-${U.shortHM(a.to)}`).join(' / ')}</span>`;
+      else if (!noApr) chip = '<span class="chip ok">充足</span>';
 
       h += `<section class="store-card" style="--sc:${st.color}">
         <header class="sc-head">${sicon(st)}<div class="sc-title"><h3>${esc(st.name)}</h3>
@@ -259,9 +269,9 @@ const V = (() => {
     const offs = state.staff.map(p => ({ p, c: cells[p.id]?.[d] })).filter(x => !x.c || x.c.t === 'o');
     if (offs.length) {
       h += `<section class="panel off-panel"><h3>休み・未設定</h3><div class="off-list">${offs.map(({ p, c }) => {
-        const o = c ? (OFF[c.k] || OFF.auto) : null;
+        const o = c ? offOf(c, ui) : null;
         return `<span class="off-item${ui.mode === 'editor' && !opts.export ? ' clickable' : ''}" data-sid="${p.id}" data-d="${d}">${esc(p.name)}
-          ${o ? `<span class="offchip ${o.c}">${o.s}</span>` : '<span class="offchip">未設定</span>'}</span>`;
+          ${o ? `<span class="offchip ${o.c}">${o.s || '休'}</span>` : '<span class="offchip">未設定</span>'}</span>`;
       }).join('')}</div></section>`;
     }
     return h;
@@ -310,7 +320,7 @@ const V = (() => {
     return `${sicon(st)}<div class="sum-main"><b>${esc(st.name)}</b><span class="muted">略称「${esc(st.short)}」・${wd}・${closed}・必要 ${st.req.wd}/${st.req.hol}名</span></div><span class="chev">⌄</span>`;
   }
   function staffSummary(p) {
-    return `<span class="avatar">${esc((p.short || p.name).slice(0, 1))}</span><div class="sum-main"><b>${esc(p.name)}</b>
+    return `<span class="avatar">${esc((p.short || p.name).slice(0, 1))}</span><div class="sum-main"><b>${esc(p.name)}${p.appraiser ? ' <span class="apr">査定員</span>' : ''}</b>
       <span class="muted">${esc(p.type)}・${esc(p.start)}〜${esc(p.end)}・メイン ${esc(M.mainLabel(p))}・対応 ${esc(M.capLabel(p))}</span></div><span class="chev">⌄</span>`;
   }
 
@@ -368,6 +378,8 @@ const V = (() => {
           <option value="free" ${p.main === 'free' ? 'selected' : ''}>フリー</option>
           ${state.stores.map(s => `<option value="${s.id}" ${p.main === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
           </select><span class="hint">原則この店舗に配置。他店に欠員があり対応可能な場合のみ応援に回ります</span></div></div>
+        <div class="f-row"><label>査定員</label><div><label class="switch"><input type="checkbox" ${b('appraiser', 'data-type="bool"')} ${p.appraiser ? 'checked' : ''}><span></span>査定員</label>
+          <span class="hint">各店舗に査定員が1人もいない日はアラートを表示し、自動作成でも優先して配置します</span></div></div>
         <div class="f-row"><label>月の休日数</label><div><input type="number" min="0" max="31" class="w-num" ${b('offDays', 'data-type="num"')} value="${esc(p.offDays)}"> 日
           <span class="hint">自動作成で確保する休みの目安（希望休を含む・有給は含まない）</span></div></div>
       </div>

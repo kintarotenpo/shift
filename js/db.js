@@ -45,7 +45,7 @@ const DB = (() => {
       hours: { wd: { open: '10:00', close: '19:00' }, hol: { open: '10:00', close: '19:00' } }, req: { wd: 1, hol: 1 },
     }, st));
     s.staff = (s.staff || []).map(p => Object.assign({
-      short: '', type: 'パート', start: '10:00', end: '18:00', stores: ['all'], main: 'free', offDays: 9, grants: [],
+      short: '', type: 'パート', start: '10:00', end: '18:00', stores: ['all'], main: 'free', offDays: 9, grants: [], appraiser: false,
     }, p));
     s.months = s.months || {};
     return s;
@@ -117,7 +117,7 @@ const Share = (() => {
         for (let d = 1; d <= N; d++) {
           const c = mon.cells?.[p.id]?.[d];
           if (!c) row.push('');
-          else if (c.t === 'o') row.push({ req: 'R', paid: 'P' }[c.k] || 'A');
+          else if (c.t === 'o') row.push('O'); // 閲覧者には休みの区分を渡さない
           else row.push(`${idx.has(c.s) ? idx.get(c.s) : -1}.${c.st}.${c.en}`);
         }
         return [p.name, p.short, p.type, row.join('|')];
@@ -147,7 +147,7 @@ const Share = (() => {
       cells[id] = {};
       a[3].split('|').forEach((t, k) => {
         if (!t) return;
-        if (t === 'R' || t === 'P' || t === 'A') cells[id][k + 1] = { t: 'o', k: { R: 'req', P: 'paid', A: 'auto' }[t] };
+        if (/^[RPAO]$/.test(t)) cells[id][k + 1] = { t: 'o', k: 'off' };
         else {
           const [si, st, en] = t.split('.').map(Number);
           cells[id][k + 1] = { t: 'w', s: 's' + si, st, en };

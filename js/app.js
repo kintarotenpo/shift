@@ -179,10 +179,10 @@ const App = (() => {
     const n = t => L.filter(a => a.type === t).length;
     el.innerHTML = `<div class="alert-bar ng">
       <button class="ab-toggle" data-act="toggle-alerts"><span class="ab-icon">!</span>
-        <b>要確認 ${L.length}件</b><span class="ab-sum">人員不足 ${n('short')} ・ 連勤超過 ${n('streak')}${n('warn') ? ' ・ その他 ' + n('warn') : ''}</span>
+        <b>要確認 ${L.length}件</b><span class="ab-sum">人員不足 ${n('short')} ・ 連勤超過 ${n('streak')}${n('appraiser') ? ' ・ 査定員不在 ' + n('appraiser') : ''}${n('warn') ? ' ・ その他 ' + n('warn') : ''}</span>
         <span class="chev">${ui.alertsOpen ? '閉じる' : '一覧'}</span></button>
       ${ui.alertsOpen ? `<ul class="ab-list">${L.map((a, i) => `<li><button data-act="alert-go" data-i="${i}" class="ab-item ${a.type}">
-        <span class="ab-type">${{ short: '人員不足', streak: '連勤', warn: '確認' }[a.type]}</span>${U.esc(Alerts.label(a, S()))}</button></li>`).join('')}</ul>` : ''}
+        <span class="ab-type">${{ short: '人員不足', streak: '連勤', appraiser: '査定員', warn: '確認' }[a.type]}</span>${U.esc(Alerts.label(a, S()))}</button></li>`).join('')}</ul>` : ''}
     </div>`;
   }
 
@@ -701,7 +701,7 @@ const App = (() => {
     const st = S(), [y, m] = U.parseYM(ui.ym);
     const isDay = ui.tab === 'day';
     const title = isDay ? `${m}月${ui.day}日（${U.WD[U.dow(y, m, ui.day)]}）のシフト` : `${y}年${m}月 シフト表`;
-    const body = isDay ? V.day(st, ui, alerts, { export: true }) : V.month(st, ui, alerts, { export: true }) + V.legend(st);
+    const body = isDay ? V.day(st, ui, alerts, { export: true }) : V.month(st, ui, alerts, { export: true }) + V.legend(st, ui);
     const stage = $('#exportStage');
     stage.innerHTML = `<div class="export-sheet ${isDay ? 'is-day' : 'is-month'}">
       <div class="ex-head"><img src="${await getLogoPng().catch(() => '')}" alt=""><div><div class="ex-title">${title}</div>

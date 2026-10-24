@@ -9,7 +9,7 @@
  *  5. 時間帯の穴を埋めるよう勤務時間をスライド
  * ========================================================= */
 const Scheduler = (() => {
-  const W = { short: 1000, hour: 60, unassigned: 200, streak: 500, pair: 40, offLess: 300, offMore: 120, surplus: 3 };
+  const W = { short: 1000, apr: 700, hour: 60, unassigned: 200, streak: 500, pair: 40, offLess: 300, offMore: 120, surplus: 3 };
   const SLOT = 30;
 
   function context(state, ym) {
@@ -22,6 +22,7 @@ const Scheduler = (() => {
     return {
       y, m, N, days, staff: state.staff, S: state.staff.length,
       maxC: +state.settings.maxConsecutive || 5,
+      useApr: state.staff.some(p => p.appraiser),
       prevTail: state.staff.map(p => M.prevTail(state, ym, p.id)),
     };
   }
@@ -105,6 +106,28 @@ const Scheduler = (() => {
         }
       }
     }
+    // 査定員がいない店舗へ、査定員が2人以上いる店舗から回す（人数が減る場合は非査定員と入れ替え）
+    let noApr = 0;
+    if (ctx.useApr) {
+      const isA = e => !!ctx.staff[e.i].appraiser;
+      const aCount = id => res[id].filter(isA).length;
+      for (const t of day.open) {
+        if (aCount(t.id)) continue;
+        let done = false;
+        for (const o of day.open) {
+          if (done || o.id === t.id || aCount(o.id) < 2) continue;
+          for (const e of res[o.id]) {
+            if (e.lk || !isA(e) || !can(ctx, e.i, t.id)) continue;
+            const x = res[t.id].find(x => !x.lk && !isA(x) && can(ctx, x.i, o.id));
+            if (!x && res[o.id].length - 1 < o.req) continue;
+            res[o.id].splice(res[o.id].indexOf(e), 1); res[t.id].push(e);
+            if (x) { res[t.id].splice(res[t.id].indexOf(x), 1); res[o.id].push(x); }
+            done = true; break;
+          }
+        }
+      }
+      for (const o of day.open) if (!aCount(o.id)) noApr++;
+    }
     let short = 0, hours = 0;
     for (const o of day.open) { short += Math.max(0, o.req - res[o.id].length); hours += hourDef(ctx, res[o.id], o); }
 
@@ -117,7 +140,7 @@ const Scheduler = (() => {
         optimizeTimes(res[o.id], o);
       }
     }
-    return { res, short, hours, unassigned, working };
+    return { res, short, hours, noApr, unassigned, working };
   }
 
   /** 延べ勤務時間の不足（分）。必要人数×営業時間に対して足りない分 */
@@ -168,7 +191,7 @@ const Scheduler = (() => {
   function dayPen(ctx, P, d) {
     const r = assignDay(ctx, P, d, false);
     const sur = r.working - r.unassigned.length - ctx.days[d].req;
-    return W.short * r.short + W.hour * (r.hours / 30) + W.unassigned * r.unassigned.length + (sur > 0 ? W.surplus * sur * sur : 0);
+    return W.short * r.short + W.apr * r.noApr + W.hour * (r.hours / 30) + W.unassigned * r.unassigned.length + (sur > 0 ? W.surplus * sur * sur : 0);
   }
 
   function staffPen(ctx, P, i) {
@@ -319,6 +342,7 @@ const Alerts = {
     const [y, m] = U.parseYM(ym), N = U.daysInMonth(y, m);
     const cells = mon.cells || {};
     const maxC = +state.settings.maxConsecutive || 5;
+    const useApr = state.staff.some(p => p.appraiser); // 査定員が1人も登録されていなければチェックしない
 
     for (let d = 1; d <= N; d++) {
       for (const st of state.stores) {
@@ -327,7 +351,7 @@ const Alerts = {
         const es = [];
         for (const p of state.staff) {
           const c = cells[p.id]?.[d];
-          if (c && c.t === 'w' && c.s === st.id) es.push(c);
+          if (c && c.t === 'w' && c.s === st.id) es.push({ st: c.st, en: c.en, apr: !!p.appraiser });
         }
         let cur = null;
         const flush = () => { if (cur) { out.list.push(cur); cur = null; } };
@@ -344,6 +368,11 @@ const Alerts = {
         if (out.list.some(a => a.type === 'short' && a.d === d && a.store === st.id)) {
           out.storeShort[`${st.id}:${d}`] = es.length < sd.req ? 'ng' : 'warn';
           out.dayShort[d] = out.dayShort[d] || 'warn';
+        }
+        if (useApr && !es.some(e => e.apr)) {
+          out.list.push({ type: 'appraiser', d, store: st.id });
+          out.dayShort[d] = 'ng';
+          out.storeShort[`${st.id}:${d}`] = out.storeShort[`${st.id}:${d}`] || 'warn';
         }
       }
     }
@@ -371,7 +400,7 @@ const Alerts = {
       }
       close(N);
     }
-    const order = { short: 0, streak: 1, warn: 2 };
+    const order = { short: 0, appraiser: 1, streak: 2, warn: 3 };
     out.list.sort((a, b) => (a.d || a.from) - (b.d || b.from) || order[a.type] - order[b.type]);
     return out;
   },
@@ -382,6 +411,10 @@ const Alerts = {
       return `${a.d}日 ${st ? st.name : ''} ${U.toHM(a.from)}〜${U.toHM(a.to)} ${lack}名不足`;
     }
     const p = state.staff.find(s => s.id === a.sid);
+    if (a.type === 'appraiser') {
+      const st = state.stores.find(s => s.id === a.store);
+      return `${a.d}日 ${st ? st.name : ''} 査定員がいません`;
+    }
     if (a.type === 'streak') return `${p ? p.name : ''} ${a.from}日〜${a.to}日 ${a.len}連勤`;
     return `${p ? p.name : ''} ${a.d}日 ${a.msg}`;
   },
