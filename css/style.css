@@ -139,6 +139,7 @@ button { cursor: pointer; }
 .ab-item.short .ab-type { background: var(--red); color: #fff; }
 .ab-item.streak .ab-type { background: var(--orange); color: #fff; }
 .ab-item.warn .ab-type { background: #888; color: #fff; }
+.ab-item.appraiser .ab-type { background: var(--k); color: var(--y); }
 
 /* ---------- Layout ---------- */
 main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
@@ -195,6 +196,9 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
 .o-req { background: var(--y-soft); color: #8A6A00; }
 .o-paid { background: var(--y-soft); color: #8A6A00; }
 .o-auto { background: #F1F1EF; color: #8a8a8a; }
+.o-view { background: #F1F1EF; color: #8a8a8a; }
+.apr { display: inline-grid; place-items: center; min-width: 18px; height: 16px; padding: 0 4px; margin-left: 4px; border-radius: 4px;
+  background: var(--k); color: var(--y); font-size: 10px; font-weight: 900; vertical-align: 2px; line-height: 1; }
 .c.streak { box-shadow: inset 4px 0 0 var(--orange); }
 .c.streak.w { background-image: linear-gradient(rgba(232, 137, 12, .1), rgba(232, 137, 12, .1)) !important; }
 .c.lk::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: #000; opacity: .45; }
@@ -228,7 +232,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
 .offchip { display: inline-grid; place-items: center; min-width: 24px; height: 20px; padding: 0 5px; border-radius: 6px; font-size: 11px; font-weight: 900; background: #eee; }
 .offchip.plan { opacity: .55; }
 .offchip.o-req, .offchip.o-paid { background: var(--y-soft); color: #8A6A00; }
-.offchip.o-auto { background: #F1F1EF; color: #8a8a8a; }
+.offchip.o-auto, .offchip.o-view { background: #F1F1EF; color: #8a8a8a; }
 .streak-chip { width: 20px; height: 18px; border-radius: 3px; background: #fff; box-shadow: inset 4px 0 0 var(--orange); border: 1px solid var(--line); }
 
 /* マイシフト */
