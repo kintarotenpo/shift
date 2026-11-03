@@ -42,6 +42,7 @@ const V = (() => {
       <span class="lg"><span class="offchip o-auto">休</span>自動休</span>
       <span class="lg"><span class="streak-chip"></span>連勤超過</span>
       <span class="lg"><span class="apr">査</span>査定員</span>
+      <span class="lg"><span class="wish-chip"></span>出勤希望日</span>
     </div>`;
   }
 
@@ -52,7 +53,9 @@ const V = (() => {
     if (flags.streak) cls += ' streak';
     if (flags.today) cls += ' today';
     if (flags.me) cls += ' me';
+    if (flags.chg) cls += ' chg';
     if (c && c.lk) cls += ' lk';
+    if (c && c.wish && flags.ui && flags.ui.mode === 'editor') cls += ' wish';
     if (!c) return `<td class="${cls} e" ${a}><span class="dash">・</span></td>`;
     if (c.t === 'o') {
       const o = offOf(c, flags.ui);
@@ -97,7 +100,8 @@ const V = (() => {
         if (c && c.t === 'w') sums[i].work++;
         else if (c && c.k === 'paid') sums[i].paid++;
         else if (c) sums[i].off++;
-        h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today, me: !!meCls(p), ui });
+        const chg = !opts.export && ui.undo && ui.undo.ym === ui.ym && ui.undo.changed.has(`${p.id}:${d}`);
+        h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today, me: !!meCls(p), ui, chg });
       });
       stores.forEach((st, i) => {
         const first = i === 0 ? ' first' : '';

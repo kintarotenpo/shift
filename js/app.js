@@ -6,6 +6,8 @@ const App = (() => {
   const ui = {
     tab: 'month', ym: U.todayYM(), day: new Date().getDate(), mode: 'editor',
     me: '', onlyMe: false, alertsOpen: false, openCards: new Set(), openLeave: '',
+    reqMode: 'off',   // 希望入力の種類: off=希望休 / want=出勤希望
+    undo: null,       // 直前の自動作成・自動調整の取り消し用 { ym, cells, label, changed:Set }
   };
   let alerts = { list: [], streak: new Set(), dayShort: {}, storeShort: {} };
   let editing = null;
@@ -150,7 +152,7 @@ const App = (() => {
     }
     const mon = S().months[ui.ym];
     tb.innerHTML = inAppNote + `<div class="tb-group">
-        <button class="btn" data-act="req-input">希望休を入力</button>
+        <button class="btn" data-act="req-input">希望を入力</button>
         <button class="btn dark" data-act="generate">自動作成</button>
         <button class="btn" data-act="fix">アラート自動調整</button>
         <select class="sel" data-change="status" aria-label="状態">
@@ -158,6 +160,7 @@ const App = (() => {
           <option value="final" ${mon?.status === 'final' ? 'selected' : ''}>確定</option></select>
       </div>
       <div class="tb-group right">
+        <button class="btn" data-act="history">履歴</button>
         <details class="dd"><summary class="btn">CSV</summary><div class="menu">
           <button data-act="csv-export">CSVを出力</button><button data-act="csv-import">CSVを読み込む</button></div></details>
         ${exportMenu}
@@ -170,14 +173,17 @@ const App = (() => {
   function renderAlertBar() {
     const el = $('#alertBar');
     if (ui.mode === 'viewer' || ui.tab === 'leave' || ui.tab === 'settings' || !S().months[ui.ym]) { el.innerHTML = ''; return; }
+    const u = ui.undo && ui.undo.ym === ui.ym ? ui.undo : null;
+    const undoBar = u ? `<div class="undo-bar"><span>${u.label}で <b>${u.changed.size}セル</b> を変更しました${u.changed.size ? '（変更箇所は点線の枠で表示）' : ''}</span>
+      <span class="undo-btns"><button class="btn sm dark" data-act="undo">元に戻す</button><button class="btn sm ghost" data-act="undo-dismiss">確定</button></span></div>` : '';
     const L = alerts.list;
     if (!L.length) {
       const has = Object.values(S().months[ui.ym].cells || {}).some(r => Object.keys(r || {}).length);
-      el.innerHTML = has ? `<div class="alert-bar ok"><span class="ab-icon">✓</span>アラートはありません</div>` : '';
+      el.innerHTML = undoBar + (has ? `<div class="alert-bar ok"><span class="ab-icon">✓</span>アラートはありません</div>` : '');
       return;
     }
     const n = t => L.filter(a => a.type === t).length;
-    el.innerHTML = `<div class="alert-bar ng">
+    el.innerHTML = undoBar + `<div class="alert-bar ng">
       <button class="ab-toggle" data-act="toggle-alerts"><span class="ab-icon">!</span>
         <b>要確認 ${L.length}件</b><span class="ab-sum">人員不足 ${n('short')} ・ 連勤超過 ${n('streak')}${n('appraiser') ? ' ・ 査定員不在 ' + n('appraiser') : ''}${n('warn') ? ' ・ その他 ' + n('warn') : ''}</span>
         <span class="chev">${ui.alertsOpen ? '閉じる' : '一覧'}</span></button>
@@ -309,7 +315,9 @@ const App = (() => {
     }
     const ch = el.dataset.change;
     if (ch === 'status') {
-      DB.month(ui.ym).status = el.value; DB.save(); render();
+      DB.month(ui.ym).status = el.value;
+      logHistory(ui.ym, 'status', el.value === 'final' ? '状態を「確定」に変更' : '状態を「暫定」に変更');
+      DB.save(); render();
       toast(el.value === 'final' ? '確定にしました。共有ボタンから最新版を送ってください' : '暫定に戻しました');
     } else if (ch === 'me') {
       ui.me = el.value; ui.onlyMe = ui.onlyMe && !!ui.me;
@@ -345,6 +353,22 @@ const App = (() => {
       } else { ui.day = a.d; ui.tab = 'day'; render(); }
     },
     'req-input': openRequestModal,
+    'req-mode': t => { saveReqDraft(); ui.reqMode = t.dataset.mode; renderRequestModal(); },
+    'undo': () => {
+      const u = ui.undo;
+      if (!u) return;
+      const cur = JSON.stringify(DB.month(u.ym).cells);
+      DB.month(u.ym).cells = JSON.parse(u.cells);
+      logHistory(u.ym, 'undo', `${u.label}を元に戻した`, cur);
+      ui.undo = null; DB.save(); render();
+      toast(`${u.label}の前の状態に戻しました`);
+    },
+    'undo-dismiss': () => { ui.undo = null; render(); },
+    'history': openHistory,
+    'history-clear': async () => {
+      if (!await ask(`${ymLabel()}の変更履歴をすべて消去しますか？（シフト自体は変わりません）`, { ok: '消去する', danger: true })) return;
+      DB.month(ui.ym).history = []; DB.save(); openHistory();
+    },
     'req-apply': t => applyRequests(t.dataset.auto === '1'),
     'generate': async () => {
       const mon = S().months[ui.ym];
@@ -355,7 +379,12 @@ const App = (() => {
     'fix': () => runScheduler(false),
     'clear-month': async () => {
       if (!await ask(`${ymLabel()}のシフトを白紙に戻します（希望休・有給も消えます）。よろしいですか？`, { ok: '白紙に戻す', danger: true })) return;
-      delete S().months[ui.ym]; DB.save(); render(); toast('白紙に戻しました');
+      const old = S().months[ui.ym];
+      const before = JSON.stringify(old?.cells || {});
+      delete S().months[ui.ym];
+      DB.month(ui.ym).history = old?.history || [];
+      logHistory(ui.ym, 'clear', 'この月を白紙に戻した（希望休・有給・出勤希望も削除）', before);
+      dropUndo(); DB.save(); render(); toast('白紙に戻しました');
     },
     'csv-export': csvExport,
     'csv-import': () => { $('#csvFile').value = ''; $('#csvFile').click(); },
@@ -458,23 +487,106 @@ const App = (() => {
   };
 
   /* ---------- 自動作成 ---------- */
-  function runScheduler(fresh) {
+  /** 自動作成・自動調整（実行前の状態を控え、失敗・悪化時は自動で元に戻す） */
+  async function runScheduler(fresh) {
     if (!S().stores.length || !S().staff.length) { toast('先に「設定」で店舗とスタッフを登録してください'); return; }
-    const before = Alerts.compute(S(), ui.ym).list.length;
+    if (!fresh && !await ask('現在のシフトを自動で調整します。\n希望休・有給・出勤希望・固定したセルは変わりません。\n\n調整後に「元に戻す」で取り消せます。また、改善しなかった場合は自動で元のシフトに戻します。', { ok: '調整する' })) return;
+    const ym = ui.ym;
+    const mon = DB.month(ym);
+    const snap = JSON.stringify(mon.cells);
+    const beforeList = Alerts.compute(S(), ym).list;
+    const before = Alerts.score(beforeList, S());
     busy(true, fresh ? 'シフトを自動作成しています…' : 'アラートを調整しています…');
-    setTimeout(() => {
-      try {
-        Scheduler.run(S(), ui.ym, { fresh });
+    await new Promise(r => setTimeout(r, 40));
+    try {
+      Scheduler.run(S(), ym, { fresh });
+      const afterList = Alerts.compute(S(), ym).list;
+      const after = Alerts.score(afterList, S());
+      if (!fresh && after >= before) {
+        mon.cells = JSON.parse(snap);
+        ui.undo = null;
+        logHistory(ym, 'fix', '自動調整を実行（改善しないため変更なし）');
         DB.save(); render();
-        const after = alerts.list.length;
-        toast(fresh ? `自動作成しました（要確認 ${after}件）`
-          : (after < before ? `調整しました（要確認 ${before}件 → ${after}件）` : `これ以上自動で解消できませんでした（残り ${after}件）`));
-      } catch (err) { console.error(err); toast('エラーが発生しました: ' + err.message); }
-      busy(false);
-    }, 40);
+        toast(`調整しても改善しないため、元のシフトのままにしました（要確認 ${beforeList.length}件）`);
+      } else {
+        const prev = JSON.parse(snap), changed = new Set();
+        for (const p of S().staff) {
+          for (let d = 1; d <= 31; d++) {
+            if (JSON.stringify(prev[p.id]?.[d] || null) !== JSON.stringify(mon.cells[p.id]?.[d] || null)) changed.add(`${p.id}:${d}`);
+          }
+        }
+        ui.undo = { ym, cells: snap, label: fresh ? '自動作成' : '自動調整', changed };
+        const names = { short: '人員不足', appraiser: '査定員不在', streak: '連勤超過', warn: 'その他' };
+        const cnt = (L, t) => L.filter(x => x.type === t).length;
+        const diff = Object.keys(names).filter(t => cnt(beforeList, t) !== cnt(afterList, t))
+          .map(t => `${names[t]} ${cnt(beforeList, t)}→${cnt(afterList, t)}件`).join('、');
+        logHistory(ym, fresh ? 'auto' : 'fix', fresh ? `自動作成（要確認 ${afterList.length}件）` : `自動調整：${diff || `要確認 ${afterList.length}件`}`, snap);
+        DB.save(); render();
+        toast(fresh ? `自動作成しました（要確認 ${afterList.length}件）`
+          : `調整しました：${diff || `要確認 ${afterList.length}件`}（${changed.size}セル変更）`);
+      }
+    } catch (err) {
+      console.error(err);
+      mon.cells = JSON.parse(snap);
+      DB.save(); render();
+      toast('エラーが発生したため、元のシフトに戻しました: ' + err.message);
+    }
+    busy(false);
+  }
+  /* ---------- 変更履歴（月ごとに最大100件） ---------- */
+  const H_TYPES = {
+    edit: '手動編集', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望',
+    csv: 'CSV読込', clear: '白紙', status: '状態変更', share: '共有',
+  };
+  const cellLabel = c => (c ? CSV.cellText(c, S()) : '') || '未設定';
+  /** 変更前（JSON文字列 or オブジェクト）と現在のセルを比べ、[日, 氏名, 変更前, 変更後] の一覧を作る */
+  function diffCells(before, after) {
+    const b = typeof before === 'string' ? JSON.parse(before) : (before || {});
+    const out = [];
+    const ids = new Set([...Object.keys(b), ...Object.keys(after || {})]);
+    for (let d = 1; d <= 31; d++) {
+      for (const sid of ids) {
+        const x = b[sid]?.[d] || null, y = after?.[sid]?.[d] || null;
+        const lx = cellLabel(x), ly = cellLabel(y);
+        if (lx !== ly) out.push([d, M.staff(sid)?.name || '（削除済み）', lx, ly]);
+      }
+    }
+    return out;
+  }
+  function logHistory(ym, type, summary, before, note = '') {
+    const mon = DB.month(ym);
+    const diffs = before === undefined ? [] : diffCells(before, mon.cells);
+    mon.history = mon.history || [];
+    mon.history.unshift({ t: Date.now(), type, summary, note, n: diffs.length, diffs: diffs.slice(0, 500) });
+    if (mon.history.length > 100) mon.history.length = 100;
   }
 
-  /* ---------- 希望休入力 ---------- */
+  /** 手動で編集したら、自動処理の取り消しは無効にする（手動の変更まで消えないように） */
+  const dropUndo = () => { ui.undo = null; };
+
+  function openHistory() {
+    const list = S().months[ui.ym]?.history || [];
+    const fmt = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${U.pad2(d.getHours())}:${U.pad2(d.getMinutes())}`; };
+    const [, m] = U.parseYM(ui.ym);
+    const body = list.length ? list.map(h => {
+      const head = `<span class="h-time">${fmt(h.t)}</span><span class="h-type t-${h.type}">${H_TYPES[h.type] || h.type}</span>
+        <span class="h-sum">${U.esc(h.summary)}</span>${h.n ? `<span class="h-n">${h.n}セル</span>` : ''}`;
+      if (!h.n && !h.note) return `<div class="hist">${head}</div>`;
+      return `<details class="hist"><summary>${head}</summary>
+        ${h.note ? `<pre class="h-note">${U.esc(h.note)}</pre>` : ''}
+        ${h.n ? `<ul class="h-diffs">${h.diffs.map(([d, name, a, b]) => `<li><b>${m}/${d}</b> ${U.esc(name)}：<span class="h-before">${U.esc(a)}</span> → <span class="h-after">${U.esc(b)}</span></li>`).join('')}
+          ${h.n > h.diffs.length ? `<li class="muted">ほか ${h.n - h.diffs.length}件</li>` : ''}</ul>` : ''}
+      </details>`;
+    }).join('') : '<p class="muted center">まだ履歴はありません</p>';
+    openModal(`${modalHead(`${ymLabel()} の変更履歴`)}
+      <div class="modal-body"><p class="hint">新しい順に表示します（この月の最新100件）。行をタップすると変更したセルの内容を確認できます。</p>
+        <div class="hist-list">${body}</div></div>
+      <div class="modal-foot">${list.length ? '<button class="btn ghost danger" data-act="history-clear">履歴を消去</button>' : ''}<span style="flex:1"></span>
+        <button class="btn" data-act="modal-close">閉じる</button></div>`, 'wide');
+  }
+
+  /* ---------- 希望休・出勤希望の入力 ---------- */
+  const reqDraft = { off: null, want: null };
   function currentReqText() {
     const mon = S().months[ui.ym];
     if (mon?.reqText) return mon.reqText;
@@ -487,14 +599,37 @@ const App = (() => {
       return ds.length ? `${p.name}　${ds.join(',')}` : '';
     }).filter(Boolean).join('\n');
   }
+  function currentWantText() {
+    const mon = S().months[ui.ym];
+    if (mon?.wantText) return mon.wantText;
+    return Object.entries(mon?.wants || {}).map(([sid, w]) => {
+      const p = M.staff(sid);
+      return p && w.days.length ? `${p.name}　${w.days.join(',')}` : '';
+    }).filter(Boolean).join('\n');
+  }
+  function saveReqDraft() { const t = $('#reqText'); if (t) reqDraft[ui.reqMode] = t.value; }
   function openRequestModal() {
-    openModal(`${modalHead(`${ymLabel()} の希望休を入力`)}
+    reqDraft.off = currentReqText();
+    reqDraft.want = currentWantText();
+    renderRequestModal();
+  }
+  function renderRequestModal() {
+    const want = ui.reqMode === 'want';
+    const mon = S().months[ui.ym];
+    const onlyDefault = Object.values(mon?.wants || {})[0]?.only ?? true;
+    const tab = (mode, label) => `<button class="rq-tab${ui.reqMode === mode ? ' active' : ''}" data-act="req-mode" data-mode="${mode}">${label}</button>`;
+    openModal(`${modalHead(`${ymLabel()} の希望を入力`)}
       <div class="modal-body">
-        <p class="hint">LINE等で集めた希望休をそのまま貼り付けてください。<b>「名前　日付,日付…」</b>を1行に1人ずつ判別します。<br>
-        「3-5」で範囲指定、「15有」のように<b>「有」</b>を付けると有給として登録します。</p>
-        <textarea id="reqText" rows="8" placeholder="平賀　1,4,7,11,14\n酒井　15,23,24有\n中村　7-8">${U.esc(currentReqText())}</textarea>
+        <div class="rq-tabs">${tab('off', '希望休')}${tab('want', '出勤希望')}</div>
+        ${want
+          ? `<p class="hint">出勤したい日を<b>「名前　日付,日付…」</b>で1行に1人ずつ入力してください。「3-5」で範囲指定もできます。<br>
+             入力した日は自動作成で<b>必ず出勤</b>になります（店舗と時間は自動で割り当て）。</p>`
+          : `<p class="hint">LINE等で集めた希望休をそのまま貼り付けてください。<b>「名前　日付,日付…」</b>を1行に1人ずつ判別します。<br>
+             「3-5」で範囲指定、「15有」のように<b>「有」</b>を付けると有給として登録します。</p>`}
+        <textarea id="reqText" rows="8" placeholder="${want ? '伊藤　2,3,9,10,16\n増山　5-8,20' : '平賀　1,4,7,11,14\n酒井　15,23,24有\n中村　7-8'}">${U.esc(reqDraft[ui.reqMode] || '')}</textarea>
         <div id="reqPreview" class="req-preview"></div>
-        <label class="chk"><input type="checkbox" id="reqReplace" checked> この月の既存の希望休・有給を置き換える</label>
+        ${want ? `<label class="chk"><input type="checkbox" id="wantOnly" ${onlyDefault ? 'checked' : ''}> 記載のない日は休みにする（入力した日だけ出勤）</label>` : ''}
+        <label class="chk"><input type="checkbox" id="reqReplace" checked> この月の既存の${want ? '出勤希望' : '希望休・有給'}を置き換える</label>
       </div>
       <div class="modal-foot">
         <button class="btn ghost" data-act="modal-close">キャンセル</button>
@@ -506,38 +641,64 @@ const App = (() => {
   }
   function renderReqPreview() {
     const [y, m] = U.parseYM(ui.ym);
+    const want = ui.reqMode === 'want';
     const text = $('#reqText')?.value || '';
     reqParsed = Parser.parseRequests(text, S().staff, U.daysInMonth(y, m));
     const el = $('#reqPreview');
     if (!reqParsed.length) { el.innerHTML = '<p class="muted center">ここに判別結果が表示されます</p>'; return; }
-    el.innerHTML = `<table class="ptable"><thead><tr><th>入力</th><th>スタッフ</th><th>希望休</th></tr></thead><tbody>
+    el.innerHTML = `<table class="ptable"><thead><tr><th>入力</th><th>スタッフ</th><th>${want ? '出勤希望日' : '希望休'}</th></tr></thead><tbody>
       ${reqParsed.map((r, i) => `<tr class="${r.staffId ? '' : 'ng'}">
         <td>${U.esc(r.name || '(名前なし)')}</td>
         <td><select data-reqrow="${i}"><option value="">該当なし（無視）</option>
           ${S().staff.map(p => `<option value="${p.id}" ${p.id === r.staffId ? 'selected' : ''}>${U.esc(p.name)}</option>`).join('')}</select></td>
-        <td class="days">${r.days.map(x => `<span class="offchip ${x.paid ? 'o-paid' : 'o-req'}">${x.d}${x.paid ? '有' : ''}</span>`).join('')}
+        <td class="days">${r.days.map(x => want ? `<span class="offchip wishchip">${x.d}</span>`
+          : `<span class="offchip ${x.paid ? 'o-paid' : 'o-req'}">${x.d}${x.paid ? '有' : ''}</span>`).join('')}
           ${r.invalid.length ? `<span class="tiny ng">範囲外: ${r.invalid.join(',')}</span>` : ''}
           ${!r.days.length ? '<span class="muted tiny">日付なし</span>' : ''}</td></tr>`).join('')}
       </tbody></table>`;
   }
   async function applyRequests(auto) {
+    const want = ui.reqMode === 'want';
     const text = $('#reqText').value;
     document.querySelectorAll('[data-reqrow]').forEach(sel => { reqParsed[+sel.dataset.reqrow].staffId = sel.value; });
     const rows = reqParsed.filter(r => r.staffId);
     const dup = rows.map(r => r.staffId).filter((x, i, a) => a.indexOf(x) !== i);
     if (dup.length && !await ask(`同じスタッフが複数行あります（${[...new Set(dup)].map(id => M.staff(id).name).join('、')}）。まとめて反映しますか？`)) return;
     const mon = DB.month(ui.ym);
-    if ($('#reqReplace').checked) {
-      for (const row of Object.values(mon.cells)) {
-        for (const d of Object.keys(row)) if (row[d].t === 'o' && (row[d].k === 'req' || row[d].k === 'paid')) delete row[d];
-      }
-    }
+    const histBefore = JSON.stringify(mon.cells);
+    const replace = $('#reqReplace').checked;
     let n = 0;
-    for (const r of rows) for (const x of r.days) { DB.setCell(ui.ym, r.staffId, x.d, { t: 'o', k: x.paid ? 'paid' : 'req' }); n++; }
-    mon.reqText = text;
+    if (want) {
+      const only = $('#wantOnly').checked;
+      if (replace || !mon.wants) mon.wants = {};
+      for (const r of rows) {
+        const cur = mon.wants[r.staffId];
+        const days = [...new Set([...(cur ? cur.days : []), ...r.days.map(x => x.d)])].sort((a, b) => a - b);
+        mon.wants[r.staffId] = { days, only };
+        // 出勤希望日と重なる希望休・有給は外す
+        for (const d of days) {
+          const c = mon.cells[r.staffId]?.[d];
+          if (c && c.t === 'o' && (c.k === 'req' || c.k === 'paid')) delete mon.cells[r.staffId][d];
+        }
+        n += r.days.length;
+      }
+      mon.wantText = text;
+    } else {
+      if (replace) {
+        for (const row of Object.values(mon.cells)) {
+          for (const d of Object.keys(row)) if (row[d].t === 'o' && (row[d].k === 'req' || row[d].k === 'paid')) delete row[d];
+        }
+      }
+      for (const r of rows) for (const x of r.days) { DB.setCell(ui.ym, r.staffId, x.d, { t: 'o', k: x.paid ? 'paid' : 'req' }); n++; }
+      mon.reqText = text;
+    }
+    const note = rows.map(r => `${M.staff(r.staffId)?.name}：${r.days.map(x => x.d + (x.paid && !want ? '有' : '')).join(',')}`).join('\n');
+    logHistory(ui.ym, want ? 'want' : 'req',
+      `${want ? '出勤希望' : '希望休'}を反映（${rows.length}名・${n}日${want ? ($('#wantOnly').checked ? '・記載日のみ出勤' : '') : ''}${replace ? '・置き換え' : ''}）`, histBefore, note);
+    dropUndo();
     DB.save(); closeModal();
     if (auto) runScheduler(true);
-    else { render(); toast(`希望休を${n}件反映しました`); }
+    else { render(); toast(`${want ? '出勤希望' : '希望休'}を${n}件反映しました。「自動作成」でシフトに反映されます`); }
   }
 
   /* ---------- セル編集 ---------- */
@@ -590,7 +751,11 @@ const App = (() => {
       if (lk) v.lk = 1;
     } else if (type === 'req' || type === 'paid') v = { t: 'o', k: type };
     else if (type === 'auto') { v = { t: 'o', k: 'auto' }; if (lk) v.lk = 1; }
+    const before = JSON.stringify(DB.month(ui.ym).cells);
     DB.setCell(ui.ym, editing.sid, editing.d, v);
+    const [, m] = U.parseYM(ui.ym);
+    logHistory(ui.ym, 'edit', `${M.staff(editing.sid)?.name || ''} ${m}/${editing.d} を編集`, before);
+    dropUndo();
     DB.save(); closeModal(); render();
   }
   function openPicker(storeId) {
@@ -638,7 +803,7 @@ const App = (() => {
       for (let d = 1; d <= N; d++) r.push(CSV.cellText(cells[p.id]?.[d], st));
       rows.push(r);
     }
-    download(new Blob([CSV.stringify(rows)], { type: 'text/csv' }), `shift_${ui.ym}.csv`);
+    download(new Blob([CSV.stringify(rows)], { type: 'text/csv' }), `shift_${U.todayStr().replace(/-/g, '_')}.csv`);
   }
   async function csvImport(e) {
     const file = e.target.files[0];
@@ -675,7 +840,10 @@ const App = (() => {
     if (bad.length) msg += `\n\n※ 解釈できないセル ${bad.length}件（空欄扱い）:\n${bad.slice(0, 5).join('\n')}${bad.length > 5 ? '\n…' : ''}`;
     if (!await ask(msg + '\n\nよろしいですか？', { ok: '読み込む' })) return;
     const mon = DB.month(ui.ym);
+    const histBefore = JSON.stringify(mon.cells);
     for (const [sid, row] of parsed) mon.cells[sid] = row;
+    logHistory(ui.ym, 'csv', `CSVを読み込み（${parsed.length}名分）`, histBefore);
+    dropUndo();
     mon.updatedAt = Date.now();
     DB.save(); render(); toast('CSVを読み込みました');
   }
@@ -801,6 +969,7 @@ const App = (() => {
         : `${location.origin}${location.pathname}?openExternalBrowser=1#v=${await Share.encode(S(), ui.ym)}`;
     } catch (e) { console.error(e); toast('共有リンクを作成できませんでした'); return; }
     const status = statusLabel();
+    if (ui.mode === 'editor') { logHistory(ui.ym, 'share', `共有リンクを作成（${status}版）`); DB.save(); }
     const [y, m] = U.parseYM(ui.ym);
     const msg = ui.mode === 'viewer'
       ? `${y}年${m}月のシフト表です。\n${url}`

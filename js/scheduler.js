@@ -30,12 +30,15 @@ const Scheduler = (() => {
 
   const can = (ctx, i, sid) => M.canWork(ctx.staff[i], sid);
 
-  function initPlan(ctx, cells, fresh) {
+  /** wants: 出勤希望 { staffId: { days: [日], only: 記載日のみ出勤 } } */
+  function initPlan(ctx, cells, fresh, wants = {}) {
     const { S, N, staff, days } = ctx;
-    const P = { work: [], fixed: [], kind: [], lock: [], keep: [] };
+    const P = { work: [], fixed: [], kind: [], lock: [], keep: [], wish: [] };
     for (let i = 0; i < S; i++) {
-      const w = [], f = [], k = [], l = [], kp = [];
+      const w = [], f = [], k = [], l = [], kp = [], ws = [];
       const row = cells[staff[i].id] || {};
+      const want = wants[staff[i].id];
+      const wantDays = new Set(want ? want.days : []);
       for (let d = 1; d <= N; d++) {
         const c = row[d];
         const capable = days[d].open.some(o => can(ctx, i, o.id));
@@ -47,9 +50,11 @@ const Scheduler = (() => {
           else { w[d] = false; k[d] = c.k || 'auto'; }
         }
         else if (!capable) { w[d] = false; f[d] = true; k[d] = 'auto'; }
+        else if (wantDays.has(d)) { w[d] = true; f[d] = true; ws[d] = true; }    // 出勤希望日は必ず出勤
+        else if (want && want.only) { w[d] = false; f[d] = true; k[d] = 'auto'; } // 記載のない日は休み
         else if (!fresh && c && c.t === 'o') { w[d] = false; k[d] = 'auto'; }
       }
-      P.work.push(w); P.fixed.push(f); P.kind.push(k); P.lock.push(l); P.keep.push(kp);
+      P.work.push(w); P.fixed.push(f); P.kind.push(k); P.lock.push(l); P.keep.push(kp); P.wish.push(ws);
     }
     return P;
   }
@@ -308,7 +313,7 @@ const Scheduler = (() => {
     const mon = DB.month(ym);
     const cells = mon.cells;
     const isEmpty = !Object.values(cells).some(r => Object.values(r || {}).some(c => c && c.t === 'w'));
-    const P = initPlan(ctx, cells, fresh || isEmpty);
+    const P = initPlan(ctx, cells, fresh || isEmpty, mon.wants || {});
     if (fresh || isEmpty) greedyOffs(ctx, P);
     improve(ctx, P);
 
@@ -322,7 +327,7 @@ const Scheduler = (() => {
       const row = {};
       for (let d = 1; d <= ctx.N; d++) {
         if (P.keep[i][d]) { row[d] = cells[p.id][d]; continue; }
-        if (P.work[i][d] && asg[i][d]) row[d] = { t: 'w', ...asg[i][d] };
+        if (P.work[i][d] && asg[i][d]) row[d] = P.wish[i][d] ? { t: 'w', ...asg[i][d], wish: 1 } : { t: 'w', ...asg[i][d] };
         else row[d] = { t: 'o', k: 'auto' };
       }
       out[p.id] = row;
@@ -378,6 +383,17 @@ const Alerts = {
       }
     }
 
+    for (const [sid, w] of Object.entries(mon.wants || {})) {
+      const p = state.staff.find(x => x.id === sid);
+      if (!p) continue;
+      for (const d of w.days || []) {
+        const c = cells[sid]?.[d];
+        if (d > N || (c && c.t === 'w')) continue;
+        const canOpen = state.stores.some(st => M.canWork(p, st.id) && M.storeDay(st, y, m, d));
+        out.list.push({ type: 'warn', sid, d, msg: canOpen ? '出勤希望日ですが出勤になっていません' : '出勤希望日ですが、勤務できる店舗が休業日です' });
+      }
+    }
+
     for (const p of state.staff) {
       const row = cells[p.id] || {};
       let run = M.prevTail(state, ym, p.id), start = 1 - run;
@@ -404,6 +420,12 @@ const Alerts = {
     const order = { short: 0, appraiser: 1, streak: 2, warn: 3 };
     out.list.sort((a, b) => (a.d || a.from) - (b.d || b.from) || order[a.type] - order[b.type]);
     return out;
+  },
+  /** 深刻度スコア（自動調整で改善したかの判定用） */
+  score(list, state) {
+    const maxC = +state.settings.maxConsecutive || 5;
+    return list.reduce((t, a) => t + (a.type === 'short' ? a.lack * (a.to - a.from) / 30
+      : a.type === 'streak' ? (a.len - maxC) * 4 : a.type === 'appraiser' ? 3 : 2), 0);
   },
   label(a, state) {
     if (a.type === 'short') {
