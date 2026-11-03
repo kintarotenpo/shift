@@ -32,7 +32,8 @@ const Scheduler = (() => {
 
   /** wants: 出勤希望 { staffId: { days: [日], only: 記載日のみ出勤 } } */
   /** only: 対象スタッフID の Set（指定時は対象外スタッフのシフトをそのまま残す） */
-  function initPlan(ctx, cells, fresh, wants = {}, only = null) {
+  /** fullWork: 「希望休以外は出勤」のスタッフ { staffId: true } */
+  function initPlan(ctx, cells, fresh, wants = {}, only = null, fullWork = {}) {
     const { S, N, staff, days } = ctx;
     const P = { work: [], fixed: [], kind: [], lock: [], keep: [], wish: [] };
     for (let i = 0; i < S; i++) {
@@ -51,6 +52,7 @@ const Scheduler = (() => {
       }
       const want = wants[staff[i].id];
       const wantDays = new Set(want ? want.days : []);
+      const full = !!fullWork[staff[i].id];
       for (let d = 1; d <= N; d++) {
         const c = row[d];
         const capable = days[d].open.some(o => can(ctx, i, o.id));
@@ -63,6 +65,7 @@ const Scheduler = (() => {
         }
         else if (!capable) { w[d] = false; f[d] = true; k[d] = 'auto'; }
         else if (wantDays.has(d)) { w[d] = true; f[d] = true; ws[d] = true; }    // 出勤希望日は必ず出勤
+        else if (full) { w[d] = true; f[d] = true; }                              // 希望休以外は出勤
         else if (want && want.only) { w[d] = false; f[d] = true; k[d] = 'auto'; } // 記載のない日は休み
         else if (!fresh && c && c.t === 'o') { w[d] = false; k[d] = 'auto'; }
       }
@@ -325,7 +328,7 @@ const Scheduler = (() => {
     const mon = DB.month(ym);
     const cells = mon.cells;
     const isEmpty = !Object.values(cells).some(r => Object.values(r || {}).some(c => c && c.t === 'w'));
-    const P = initPlan(ctx, cells, fresh || isEmpty, mon.wants || {}, only);
+    const P = initPlan(ctx, cells, fresh || isEmpty, mon.wants || {}, only, mon.fullWork || {});
     if (fresh || isEmpty) greedyOffs(ctx, P);
     improve(ctx, P);
 

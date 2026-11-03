@@ -8,6 +8,7 @@ const App = (() => {
     me: '', onlyMe: false, alertsOpen: false, openCards: new Set(), openLeave: '',
     reqMode: 'off',   // 希望入力の種類: off=希望休 / want=出勤希望
     reqOnlyInput: false, // 「入力スタッフのみ反映」
+    reqFullWork: false,  // 「希望休以外は出勤にする」
     undo: null,       // 直前の自動作成・自動調整の取り消し用 { ym, cells, label, changed:Set }
   };
   let alerts = { list: [], streak: new Set(), dayShort: {}, storeShort: {} };
@@ -360,6 +361,7 @@ const App = (() => {
       const cur = JSON.stringify(DB.month(u.ym).cells);
       DB.month(u.ym).cells = JSON.parse(u.cells);
       if (u.wants !== undefined) DB.month(u.ym).wants = JSON.parse(u.wants);
+      if (u.fullWork !== undefined) DB.month(u.ym).fullWork = JSON.parse(u.fullWork);
       logHistory(u.ym, 'undo', `${u.label}を元に戻した`, cur);
       ui.undo = null; DB.save(); render();
       toast(`${u.label}の前の状態に戻しました`);
@@ -588,11 +590,12 @@ const App = (() => {
     const all = mode === 'all';
     if (!await ask(`${p.name}さんの${ymLabel()}の${all ? 'シフト・希望休・有給・出勤希望日をすべて' : 'シフト（出勤・休(自動)）を'}リセットします。よろしいですか？`, { ok: 'リセットする', danger: true })) return;
     const ym = ui.ym, mon = DB.month(ym);
-    const snap = JSON.stringify(mon.cells), wantsSnap = JSON.stringify(mon.wants || {});
+    const snap = JSON.stringify(mon.cells), wantsSnap = JSON.stringify(mon.wants || {}), fullSnap = JSON.stringify(mon.fullWork || {});
     const row = mon.cells[sid] || {};
     if (all) {
       delete mon.cells[sid];
       if (mon.wants) delete mon.wants[sid];
+      if (mon.fullWork) delete mon.fullWork[sid];
     } else {
       const keep = {};
       for (const [d, c] of Object.entries(row)) if (c.t === 'o' && (c.k === 'req' || c.k === 'paid')) keep[d] = c;
@@ -601,7 +604,7 @@ const App = (() => {
     mon.updatedAt = Date.now();
     const changed = new Set(Object.keys(row).filter(d => JSON.stringify(row[d]) !== JSON.stringify(mon.cells[sid]?.[d] || null)).map(d => `${sid}:${d}`));
     logHistory(ym, 'reset', `${p.name}さんを${all ? 'すべて' : 'シフトのみ'}リセット`, snap);
-    ui.undo = { ym, cells: snap, wants: wantsSnap, label: `${p.name}さんのリセット`, changed };
+    ui.undo = { ym, cells: snap, wants: wantsSnap, fullWork: fullSnap, label: `${p.name}さんのリセット`, changed };
     DB.save(); closeModal(); render();
     toast(`${p.name}さんの${all ? 'この月のデータをすべて' : 'シフトを'}リセットしました`);
   }
@@ -652,6 +655,7 @@ const App = (() => {
   function saveReqDraft() {
     const t = $('#reqText'); if (t) reqDraft[ui.reqMode] = t.value;
     const o = $('#reqOnlyInput'); if (o) ui.reqOnlyInput = o.checked;
+    const fw = $('#reqFullWork'); if (fw) ui.reqFullWork = fw.checked;
   }
   function openRequestModal() {
     reqDraft.off = currentReqText();
@@ -671,6 +675,7 @@ const App = (() => {
              <b>入力した日を休み</b>にし、残りの日は<b>メイン店舗・対応店舗</b>に応じて自動で出勤を割り当てます（休日数は設定の「月の休日数」が目安）。</p>`}
         <textarea id="reqText" rows="8" placeholder="${want ? '伊藤　2,3,9,10,16\n増山　5-8,20' : '平賀　1,4,7,11,14\n酒井　15,23,24有\n中村　7-8'}">${U.esc(reqDraft[ui.reqMode] || '')}</textarea>
         <div id="reqPreview" class="req-preview"></div>
+        ${want ? '' : `<label class="chk"><input type="checkbox" id="reqFullWork" ${ui.reqFullWork ? 'checked' : ''}> 希望休以外は出勤にする（入力したスタッフは、希望休・有給以外の日をすべて出勤にします）</label>`}
         <label class="chk"><input type="checkbox" id="reqReplace" checked> この月の既存の${want ? '出勤希望日' : '希望休・有給'}を置き換える</label>
         <label class="chk"><input type="checkbox" id="reqOnlyInput" ${ui.reqOnlyInput ? 'checked' : ''}> 入力スタッフのみ反映（入力したスタッフだけシフトを作り直し、ほかのスタッフのシフトは変えない）</label>
       </div>
@@ -723,6 +728,7 @@ const App = (() => {
         const cur = mon.wants[r.staffId];
         const days = [...new Set([...(cur ? cur.days : []), ...r.days.map(x => x.d)])].sort((a, b) => a - b);
         mon.wants[r.staffId] = { days, only };
+        if (mon.fullWork) delete mon.fullWork[r.staffId];
         // 出勤希望日と重なる希望休・有給は外す
         for (const d of days) {
           const c = mon.cells[r.staffId]?.[d];
@@ -741,11 +747,17 @@ const App = (() => {
       for (const r of rows) for (const x of r.days) { DB.setCell(ui.ym, r.staffId, x.d, { t: 'o', k: x.paid ? 'paid' : 'req' }); n++; }
       // 希望休で入力したスタッフは、出勤希望日の設定を解除（希望休ベースで作成）
       for (const r of rows) if (mon.wants) delete mon.wants[r.staffId];
+      // 「希望休以外は出勤にする」：入力したスタッフに設定（置き換え時は対象範囲の設定をいったん解除）
+      const fullWork = $('#reqFullWork').checked;
+      ui.reqFullWork = fullWork;
+      mon.fullWork = mon.fullWork || {};
+      if (replace) for (const sid of Object.keys(mon.fullWork)) if (inScope(sid)) delete mon.fullWork[sid];
+      for (const r of rows) { if (fullWork) mon.fullWork[r.staffId] = true; else delete mon.fullWork[r.staffId]; }
       mon.reqText = text;
     }
     const note = rows.map(r => `${M.staff(r.staffId)?.name}：${r.days.map(x => x.d + (x.paid && !want ? '有' : '')).join(',')}`).join('\n');
     logHistory(ui.ym, want ? 'want' : 'req',
-      `${want ? '出勤希望日' : '希望休'}を入力（${rows.length}名・${n}日${replace ? '・置き換え' : ''}）`, histBefore, note);
+      `${want ? '出勤希望日' : '希望休'}を入力（${rows.length}名・${n}日${!want && ui.reqFullWork ? '・希望休以外は出勤' : ''}${replace ? '・置き換え' : ''}）`, histBefore, note);
     dropUndo();
     DB.save(); closeModal();
     if (auto) runScheduler(true, onlyInput ? targets : null);
