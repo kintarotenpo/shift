@@ -489,6 +489,41 @@ a.btn.dark { color: var(--y); }
 .save-preview { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #fafafa; }
 .save-preview img { display: block; width: 100%; height: auto; -webkit-touch-callout: default; user-select: auto; }
 
+/* 出勤希望・自動処理の変更箇所 */
+.c.wish::before { content: ''; position: absolute; top: 0; left: 0; border-style: solid; border-width: 9px 9px 0 0;
+  border-color: var(--k) transparent transparent transparent; }
+.wish-chip { width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 3px; background:
+  linear-gradient(135deg, var(--k) 0 35%, #fff 35%); }
+.offchip.wishchip { background: var(--k); color: var(--y); }
+.c.chg { outline: 2px dashed var(--k); outline-offset: -3px; }
+.undo-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  background: var(--y-soft); border: 1.5px solid var(--y); border-radius: 12px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
+.undo-btns { display: flex; gap: 6px; }
+.rq-tabs { display: flex; gap: 4px; background: var(--line2); padding: 4px; border-radius: 11px; }
+.rq-tab { flex: 1; border: 0; background: transparent; padding: 8px; border-radius: 8px; font-weight: 700; }
+.rq-tab.active { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+
+/* 変更履歴 */
+.hist-list { display: grid; gap: 6px; }
+.hist { border: 1.5px solid var(--line2); border-radius: 10px; background: #fff; }
+.hist > summary, div.hist { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; list-style: none; }
+.hist > summary { cursor: pointer; }
+.hist > summary::-webkit-details-marker { display: none; }
+details.hist[open] { border-color: var(--ink); }
+.h-time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 72px; }
+.h-type { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 6px; background: var(--line2); }
+.h-type.t-auto, .h-type.t-fix { background: var(--k); color: var(--y); }
+.h-type.t-edit { background: var(--y); color: #000; }
+.h-type.t-undo, .h-type.t-clear { background: var(--red-soft); color: var(--red); }
+.h-type.t-req, .h-type.t-want { background: var(--y-soft); color: #8A6A00; }
+.h-type.t-share, .h-type.t-status { background: var(--green-soft); color: var(--green); }
+.h-sum { flex: 1; min-width: 160px; font-size: 13px; }
+.h-n { font-size: 11px; color: var(--muted); }
+.h-note { margin: 0 10px 8px; padding: 8px; background: var(--bg); border-radius: 8px; font: inherit; font-size: 12px; white-space: pre-wrap; }
+.h-diffs { list-style: none; margin: 0; padding: 0 10px 10px; display: grid; gap: 3px; font-size: 12px; max-height: 260px; overflow: auto; }
+.h-before { color: var(--muted); text-decoration: line-through; }
+.h-after { font-weight: 700; }
+
 /* 確認ダイアログ */
 .confirm-layer { z-index: 120; align-items: center !important; padding: 16px !important; }
 .modal.confirm { max-width: 420px; border-radius: 18px !important; }
