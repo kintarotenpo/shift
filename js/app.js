@@ -7,6 +7,7 @@ const App = (() => {
     tab: 'month', ym: U.todayYM(), day: new Date().getDate(), mode: 'editor',
     me: '', onlyMe: false, alertsOpen: false, openCards: new Set(), openLeave: '',
     reqMode: 'off',   // 希望入力の種類: off=希望休 / want=出勤希望
+    reqOnlyInput: false, // 「入力スタッフのみ反映」
     undo: null,       // 直前の自動作成・自動調整の取り消し用 { ym, cells, label, changed:Set }
   };
   let alerts = { list: [], streak: new Set(), dayShort: {}, storeShort: {} };
@@ -152,8 +153,7 @@ const App = (() => {
     }
     const mon = S().months[ui.ym];
     tb.innerHTML = inAppNote + `<div class="tb-group">
-        <button class="btn" data-act="req-input">希望を入力</button>
-        <button class="btn dark" data-act="generate">自動作成</button>
+        <button class="btn dark" data-act="req-input">シフトを作成</button>
         <button class="btn" data-act="fix">アラート自動調整</button>
         <select class="sel" data-change="status" aria-label="状態">
           <option value="draft" ${mon?.status !== 'final' ? 'selected' : ''}>暫定</option>
@@ -370,12 +370,6 @@ const App = (() => {
       DB.month(ui.ym).history = []; DB.save(); openHistory();
     },
     'req-apply': t => applyRequests(t.dataset.auto === '1'),
-    'generate': async () => {
-      const mon = S().months[ui.ym];
-      const has = mon && Object.values(mon.cells).some(r => Object.values(r || {}).some(c => c && (c.t === 'w' || c.k === 'auto')));
-      if (has && !await ask('現在のシフトを作り直します。\n（希望休・有給・固定したセルはそのまま残ります）\nよろしいですか？')) return;
-      runScheduler(true);
-    },
     'fix': () => runScheduler(false),
     'clear-month': async () => {
       if (!await ask(`${ymLabel()}のシフトを白紙に戻します（希望休・有給も消えます）。よろしいですか？`, { ok: '白紙に戻す', danger: true })) return;
@@ -488,7 +482,8 @@ const App = (() => {
 
   /* ---------- 自動作成 ---------- */
   /** 自動作成・自動調整（実行前の状態を控え、失敗・悪化時は自動で元に戻す） */
-  async function runScheduler(fresh) {
+  /** only: 対象スタッフID の Set（「入力スタッフのみ反映」時） */
+  async function runScheduler(fresh, only = null) {
     if (!S().stores.length || !S().staff.length) { toast('先に「設定」で店舗とスタッフを登録してください'); return; }
     if (!fresh && !await ask('現在のシフトを自動で調整します。\n希望休・有給・出勤希望・固定したセルは変わりません。\n\n調整後に「元に戻す」で取り消せます。また、改善しなかった場合は自動で元のシフトに戻します。', { ok: '調整する' })) return;
     const ym = ui.ym;
@@ -499,7 +494,7 @@ const App = (() => {
     busy(true, fresh ? 'シフトを自動作成しています…' : 'アラートを調整しています…');
     await new Promise(r => setTimeout(r, 40));
     try {
-      Scheduler.run(S(), ym, { fresh });
+      Scheduler.run(S(), ym, { fresh, only });
       const afterList = Alerts.compute(S(), ym).list;
       const after = Alerts.score(afterList, S());
       if (!fresh && after >= before) {
@@ -520,9 +515,10 @@ const App = (() => {
         const cnt = (L, t) => L.filter(x => x.type === t).length;
         const diff = Object.keys(names).filter(t => cnt(beforeList, t) !== cnt(afterList, t))
           .map(t => `${names[t]} ${cnt(beforeList, t)}→${cnt(afterList, t)}件`).join('、');
-        logHistory(ym, fresh ? 'auto' : 'fix', fresh ? `自動作成（要確認 ${afterList.length}件）` : `自動調整：${diff || `要確認 ${afterList.length}件`}`, snap);
+        const who = only ? `・${[...only].map(id => M.staff(id)?.name).filter(Boolean).join('・')}のみ` : '';
+        logHistory(ym, fresh ? 'auto' : 'fix', fresh ? `自動作成（要確認 ${afterList.length}件${who}）` : `自動調整：${diff || `要確認 ${afterList.length}件`}`, snap);
         DB.save(); render();
-        toast(fresh ? `自動作成しました（要確認 ${afterList.length}件）`
+        toast(fresh ? `${only ? `入力した${only.size}名の` : ''}シフトを自動作成しました（要確認 ${afterList.length}件）`
           : `調整しました：${diff || `要確認 ${afterList.length}件`}（${changed.size}セル変更）`);
       }
     } catch (err) {
@@ -607,7 +603,10 @@ const App = (() => {
       return p && w.days.length ? `${p.name}　${w.days.join(',')}` : '';
     }).filter(Boolean).join('\n');
   }
-  function saveReqDraft() { const t = $('#reqText'); if (t) reqDraft[ui.reqMode] = t.value; }
+  function saveReqDraft() {
+    const t = $('#reqText'); if (t) reqDraft[ui.reqMode] = t.value;
+    const o = $('#reqOnlyInput'); if (o) ui.reqOnlyInput = o.checked;
+  }
   function openRequestModal() {
     reqDraft.off = currentReqText();
     reqDraft.want = currentWantText();
@@ -618,7 +617,7 @@ const App = (() => {
     const mon = S().months[ui.ym];
     const onlyDefault = Object.values(mon?.wants || {})[0]?.only ?? true;
     const tab = (mode, label) => `<button class="rq-tab${ui.reqMode === mode ? ' active' : ''}" data-act="req-mode" data-mode="${mode}">${label}</button>`;
-    openModal(`${modalHead(`${ymLabel()} の希望を入力`)}
+    openModal(`${modalHead(`${ymLabel()} のシフトを作成`)}
       <div class="modal-body">
         <div class="rq-tabs">${tab('off', '希望休')}${tab('want', '出勤希望')}</div>
         ${want
@@ -630,6 +629,7 @@ const App = (() => {
         <div id="reqPreview" class="req-preview"></div>
         ${want ? `<label class="chk"><input type="checkbox" id="wantOnly" ${onlyDefault ? 'checked' : ''}> 記載のない日は休みにする（入力した日だけ出勤）</label>` : ''}
         <label class="chk"><input type="checkbox" id="reqReplace" checked> この月の既存の${want ? '出勤希望' : '希望休・有給'}を置き換える</label>
+        <label class="chk"><input type="checkbox" id="reqOnlyInput" ${ui.reqOnlyInput ? 'checked' : ''}> 入力スタッフのみ反映（入力したスタッフだけシフトを作り直し、ほかのスタッフのシフトは変えない）</label>
       </div>
       <div class="modal-foot">
         <button class="btn ghost" data-act="modal-close">キャンセル</button>
@@ -667,10 +667,16 @@ const App = (() => {
     const mon = DB.month(ui.ym);
     const histBefore = JSON.stringify(mon.cells);
     const replace = $('#reqReplace').checked;
+    const onlyInput = $('#reqOnlyInput').checked;
+    ui.reqOnlyInput = onlyInput;
+    const targets = new Set(rows.map(r => r.staffId));
+    if (onlyInput && !targets.size) { toast('「入力スタッフのみ反映」がONですが、対象のスタッフが入力されていません'); return; }
+    const inScope = sid => !onlyInput || targets.has(sid); // 置き換えの対象（ONなら入力スタッフのみ）
     let n = 0;
     if (want) {
       const only = $('#wantOnly').checked;
-      if (replace || !mon.wants) mon.wants = {};
+      if (!mon.wants) mon.wants = {};
+      if (replace) for (const sid of Object.keys(mon.wants)) if (inScope(sid)) delete mon.wants[sid];
       for (const r of rows) {
         const cur = mon.wants[r.staffId];
         const days = [...new Set([...(cur ? cur.days : []), ...r.days.map(x => x.d)])].sort((a, b) => a - b);
@@ -685,7 +691,8 @@ const App = (() => {
       mon.wantText = text;
     } else {
       if (replace) {
-        for (const row of Object.values(mon.cells)) {
+        for (const [sid, row] of Object.entries(mon.cells)) {
+          if (!inScope(sid)) continue;
           for (const d of Object.keys(row)) if (row[d].t === 'o' && (row[d].k === 'req' || row[d].k === 'paid')) delete row[d];
         }
       }
@@ -697,8 +704,8 @@ const App = (() => {
       `${want ? '出勤希望' : '希望休'}を反映（${rows.length}名・${n}日${want ? ($('#wantOnly').checked ? '・記載日のみ出勤' : '') : ''}${replace ? '・置き換え' : ''}）`, histBefore, note);
     dropUndo();
     DB.save(); closeModal();
-    if (auto) runScheduler(true);
-    else { render(); toast(`${want ? '出勤希望' : '希望休'}を${n}件反映しました。「自動作成」でシフトに反映されます`); }
+    if (auto) runScheduler(true, onlyInput ? targets : null);
+    else { render(); toast(`${want ? '出勤希望' : '希望休'}を${n}件反映しました。シフトには「反映して自動作成」で反映されます`); }
   }
 
   /* ---------- セル編集 ---------- */

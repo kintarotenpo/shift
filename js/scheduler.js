@@ -31,12 +31,24 @@ const Scheduler = (() => {
   const can = (ctx, i, sid) => M.canWork(ctx.staff[i], sid);
 
   /** wants: 出勤希望 { staffId: { days: [日], only: 記載日のみ出勤 } } */
-  function initPlan(ctx, cells, fresh, wants = {}) {
+  /** only: 対象スタッフID の Set（指定時は対象外スタッフのシフトをそのまま残す） */
+  function initPlan(ctx, cells, fresh, wants = {}, only = null) {
     const { S, N, staff, days } = ctx;
     const P = { work: [], fixed: [], kind: [], lock: [], keep: [], wish: [] };
     for (let i = 0; i < S; i++) {
       const w = [], f = [], k = [], l = [], kp = [], ws = [];
       const row = cells[staff[i].id] || {};
+      if (only && !only.has(staff[i].id)) {
+        // 対象外：現在のシフトを固定（出勤は人数に数える）
+        for (let d = 1; d <= N; d++) {
+          const c = row[d];
+          f[d] = true; kp[d] = true; l[d] = null; k[d] = null;
+          if (c && c.t === 'w') { w[d] = true; l[d] = { s: c.s, st: c.st, en: c.en }; }
+          else { w[d] = false; k[d] = c ? (c.k || 'auto') : 'auto'; }
+        }
+        P.work.push(w); P.fixed.push(f); P.kind.push(k); P.lock.push(l); P.keep.push(kp); P.wish.push(ws);
+        continue;
+      }
       const want = wants[staff[i].id];
       const wantDays = new Set(want ? want.days : []);
       for (let d = 1; d <= N; d++) {
@@ -308,12 +320,12 @@ const Scheduler = (() => {
   }
 
   /** fresh=true: 作り直し / false: 現在のシフトを起点にアラートだけ調整 */
-  function run(state, ym, { fresh = true } = {}) {
+  function run(state, ym, { fresh = true, only = null } = {}) {
     const ctx = context(state, ym);
     const mon = DB.month(ym);
     const cells = mon.cells;
     const isEmpty = !Object.values(cells).some(r => Object.values(r || {}).some(c => c && c.t === 'w'));
-    const P = initPlan(ctx, cells, fresh || isEmpty, mon.wants || {});
+    const P = initPlan(ctx, cells, fresh || isEmpty, mon.wants || {}, only);
     if (fresh || isEmpty) greedyOffs(ctx, P);
     improve(ctx, P);
 
@@ -326,7 +338,7 @@ const Scheduler = (() => {
     ctx.staff.forEach((p, i) => {
       const row = {};
       for (let d = 1; d <= ctx.N; d++) {
-        if (P.keep[i][d]) { row[d] = cells[p.id][d]; continue; }
+        if (P.keep[i][d]) { const c = cells[p.id]?.[d]; if (c) row[d] = c; continue; }
         if (P.work[i][d] && asg[i][d]) row[d] = P.wish[i][d] ? { t: 'w', ...asg[i][d], wish: 1 } : { t: 'w', ...asg[i][d] };
         else row[d] = { t: 'o', k: 'auto' };
       }
