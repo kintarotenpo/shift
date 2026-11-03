@@ -531,7 +531,7 @@ const App = (() => {
   }
   /* ---------- 変更履歴（月ごとに最大100件） ---------- */
   const H_TYPES = {
-    edit: '手動編集', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望',
+    edit: '手動編集', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望日',
     csv: 'CSV読込', clear: '白紙', status: '状態変更', share: '共有',
   };
   const cellLabel = c => (c ? CSV.cellText(c, S()) : '') || '未設定';
@@ -614,27 +614,23 @@ const App = (() => {
   }
   function renderRequestModal() {
     const want = ui.reqMode === 'want';
-    const mon = S().months[ui.ym];
-    const onlyDefault = Object.values(mon?.wants || {})[0]?.only ?? true;
     const tab = (mode, label) => `<button class="rq-tab${ui.reqMode === mode ? ' active' : ''}" data-act="req-mode" data-mode="${mode}">${label}</button>`;
     openModal(`${modalHead(`${ymLabel()} のシフトを作成`)}
       <div class="modal-body">
-        <div class="rq-tabs">${tab('off', '希望休')}${tab('want', '出勤希望')}</div>
+        <div class="rq-tabs">${tab('off', '希望休から作成')}${tab('want', '出勤希望日から作成')}</div>
         ${want
-          ? `<p class="hint">出勤したい日を<b>「名前　日付,日付…」</b>で1行に1人ずつ入力してください。「3-5」で範囲指定もできます。<br>
-             入力した日は自動作成で<b>必ず出勤</b>になります（店舗と時間は自動で割り当て）。</p>`
-          : `<p class="hint">LINE等で集めた希望休をそのまま貼り付けてください。<b>「名前　日付,日付…」</b>を1行に1人ずつ判別します。<br>
-             「3-5」で範囲指定、「15有」のように<b>「有」</b>を付けると有給として登録します。</p>`}
+          ? `<p class="hint"><b>「スタッフ名　出勤希望日」</b>を1行に1人ずつ入力してください（例：伊藤　2,3,9 ／「5-8」で範囲指定）。<br>
+             <b>入力した日だけ出勤</b>になり、それ以外の日は休みになります。出勤日の店舗と時間は、<b>メイン店舗・対応店舗</b>に応じて自動で割り当てます。</p>`
+          : `<p class="hint"><b>「スタッフ名　希望休」</b>を1行に1人ずつ入力してください。LINE等で集めたテキストをそのまま貼り付けられます（「3-5」で範囲指定、「15有」で有給）。<br>
+             <b>入力した日を休み</b>にし、残りの日は<b>メイン店舗・対応店舗</b>に応じて自動で出勤を割り当てます（休日数は設定の「月の休日数」が目安）。</p>`}
         <textarea id="reqText" rows="8" placeholder="${want ? '伊藤　2,3,9,10,16\n増山　5-8,20' : '平賀　1,4,7,11,14\n酒井　15,23,24有\n中村　7-8'}">${U.esc(reqDraft[ui.reqMode] || '')}</textarea>
         <div id="reqPreview" class="req-preview"></div>
-        ${want ? `<label class="chk"><input type="checkbox" id="wantOnly" ${onlyDefault ? 'checked' : ''}> 記載のない日は休みにする（入力した日だけ出勤）</label>` : ''}
-        <label class="chk"><input type="checkbox" id="reqReplace" checked> この月の既存の${want ? '出勤希望' : '希望休・有給'}を置き換える</label>
+        <label class="chk"><input type="checkbox" id="reqReplace" checked> この月の既存の${want ? '出勤希望日' : '希望休・有給'}を置き換える</label>
         <label class="chk"><input type="checkbox" id="reqOnlyInput" ${ui.reqOnlyInput ? 'checked' : ''}> 入力スタッフのみ反映（入力したスタッフだけシフトを作り直し、ほかのスタッフのシフトは変えない）</label>
       </div>
       <div class="modal-foot">
         <button class="btn ghost" data-act="modal-close">キャンセル</button>
-        <button class="btn" data-act="req-apply" data-auto="0">反映のみ</button>
-        <button class="btn primary" data-act="req-apply" data-auto="1">反映して自動作成</button>
+        <button class="btn primary" data-act="req-apply" data-auto="1">シフトを作成</button>
       </div>`, 'wide');
     renderReqPreview();
     $('#reqText').focus();
@@ -674,7 +670,7 @@ const App = (() => {
     const inScope = sid => !onlyInput || targets.has(sid); // 置き換えの対象（ONなら入力スタッフのみ）
     let n = 0;
     if (want) {
-      const only = $('#wantOnly').checked;
+      const only = true; // 出勤希望日から作成：入力した日だけ出勤
       if (!mon.wants) mon.wants = {};
       if (replace) for (const sid of Object.keys(mon.wants)) if (inScope(sid)) delete mon.wants[sid];
       for (const r of rows) {
@@ -697,11 +693,13 @@ const App = (() => {
         }
       }
       for (const r of rows) for (const x of r.days) { DB.setCell(ui.ym, r.staffId, x.d, { t: 'o', k: x.paid ? 'paid' : 'req' }); n++; }
+      // 希望休で入力したスタッフは、出勤希望日の設定を解除（希望休ベースで作成）
+      for (const r of rows) if (mon.wants) delete mon.wants[r.staffId];
       mon.reqText = text;
     }
     const note = rows.map(r => `${M.staff(r.staffId)?.name}：${r.days.map(x => x.d + (x.paid && !want ? '有' : '')).join(',')}`).join('\n');
     logHistory(ui.ym, want ? 'want' : 'req',
-      `${want ? '出勤希望' : '希望休'}を反映（${rows.length}名・${n}日${want ? ($('#wantOnly').checked ? '・記載日のみ出勤' : '') : ''}${replace ? '・置き換え' : ''}）`, histBefore, note);
+      `${want ? '出勤希望日' : '希望休'}を入力（${rows.length}名・${n}日${replace ? '・置き換え' : ''}）`, histBefore, note);
     dropUndo();
     DB.save(); closeModal();
     if (auto) runScheduler(true, onlyInput ? targets : null);
