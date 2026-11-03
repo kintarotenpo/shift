@@ -160,6 +160,9 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
 /* 見出し行（スタッフ名・店舗） */
 .mtable thead th { position: sticky; top: 0; z-index: 3; background: #fff; border-bottom: 2px solid var(--ink); padding: 8px 4px; vertical-align: bottom; }
 .mtable .staff-h { min-width: 68px; }
+.mtable .staff-h.clickable { cursor: pointer; }
+.mtable .staff-h.clickable:hover { background: var(--y-soft); }
+.mtable .staff-h.clickable .nm::after { content: '⌄'; font-size: 11px; color: var(--muted); margin-left: 2px; }
 .mtable .store-h { min-width: 52px; background: #FBFAF6; }
 .mtable .store-h .sub { margin-top: 3px; }
 .mtable .first { border-left: 2px solid var(--line); }
@@ -514,7 +517,7 @@ details.hist[open] { border-color: var(--ink); }
 .h-type { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 6px; background: var(--line2); }
 .h-type.t-auto, .h-type.t-fix { background: var(--k); color: var(--y); }
 .h-type.t-edit { background: var(--y); color: #000; }
-.h-type.t-undo, .h-type.t-clear { background: var(--red-soft); color: var(--red); }
+.h-type.t-undo, .h-type.t-clear, .h-type.t-reset { background: var(--red-soft); color: var(--red); }
 .h-type.t-req, .h-type.t-want { background: var(--y-soft); color: #8A6A00; }
 .h-type.t-share, .h-type.t-status { background: var(--green-soft); color: var(--green); }
 .h-sum { flex: 1; min-width: 160px; font-size: 13px; }
