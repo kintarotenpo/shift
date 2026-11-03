@@ -359,11 +359,14 @@ const App = (() => {
       if (!u) return;
       const cur = JSON.stringify(DB.month(u.ym).cells);
       DB.month(u.ym).cells = JSON.parse(u.cells);
+      if (u.wants !== undefined) DB.month(u.ym).wants = JSON.parse(u.wants);
       logHistory(u.ym, 'undo', `${u.label}を元に戻した`, cur);
       ui.undo = null; DB.save(); render();
       toast(`${u.label}の前の状態に戻しました`);
     },
     'undo-dismiss': () => { ui.undo = null; render(); },
+    'staff-menu': t => openStaffMenu(t.dataset.sid),
+    'staff-reset': t => resetStaff(t.dataset.sid, t.dataset.mode),
     'history': openHistory,
     'history-clear': async () => {
       if (!await ask(`${ymLabel()}の変更履歴をすべて消去しますか？（シフト自体は変わりません）`, { ok: '消去する', danger: true })) return;
@@ -531,7 +534,7 @@ const App = (() => {
   }
   /* ---------- 変更履歴（月ごとに最大100件） ---------- */
   const H_TYPES = {
-    edit: '手動編集', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望日',
+    edit: '手動編集', reset: 'リセット', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望日',
     csv: 'CSV読込', clear: '白紙', status: '状態変更', share: '共有',
   };
   const cellLabel = c => (c ? CSV.cellText(c, S()) : '') || '未設定';
@@ -559,6 +562,49 @@ const App = (() => {
 
   /** 手動で編集したら、自動処理の取り消しは無効にする（手動の変更まで消えないように） */
   const dropUndo = () => { ui.undo = null; };
+
+  /* ---------- スタッフ個別のリセット ---------- */
+  function openStaffMenu(sid) {
+    const p = M.staff(sid);
+    if (!p) return;
+    const row = S().months[ui.ym]?.cells?.[sid] || {};
+    const cnt = f => Object.values(row).filter(f).length;
+    const work = cnt(c => c.t === 'w'), req = cnt(c => c.t === 'o' && (c.k === 'req' || c.k === 'paid'));
+    const wish = (S().months[ui.ym]?.wants?.[sid]?.days || []).length;
+    openModal(`${modalHead(`${U.esc(p.name)}さん <small>${ymLabel()}</small>`)}
+      <div class="modal-body">
+        <p class="hint">現在：出勤 ${work}日 ・ 希望休/有給 ${req}日${wish ? ` ・ 出勤希望日 ${wish}日` : ''}</p>
+        <div class="pick-list">
+          <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="shift">
+            <b>シフトのみリセット</b><span class="muted">出勤・休(自動)を消します。希望休・有給・出勤希望日は残します</span></button>
+          <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="all">
+            <b>すべてリセット</b><span class="muted">この月の希望休・有給・出勤希望日も含めて白紙にします</span></button>
+        </div>
+        <p class="tiny muted">リセット後は「シフトを作成」で「入力スタッフのみ反映」を使うと、このスタッフだけ作り直せます。「元に戻す」で取り消しもできます。</p>
+      </div>`);
+  }
+  async function resetStaff(sid, mode) {
+    const p = M.staff(sid);
+    const all = mode === 'all';
+    if (!await ask(`${p.name}さんの${ymLabel()}の${all ? 'シフト・希望休・有給・出勤希望日をすべて' : 'シフト（出勤・休(自動)）を'}リセットします。よろしいですか？`, { ok: 'リセットする', danger: true })) return;
+    const ym = ui.ym, mon = DB.month(ym);
+    const snap = JSON.stringify(mon.cells), wantsSnap = JSON.stringify(mon.wants || {});
+    const row = mon.cells[sid] || {};
+    if (all) {
+      delete mon.cells[sid];
+      if (mon.wants) delete mon.wants[sid];
+    } else {
+      const keep = {};
+      for (const [d, c] of Object.entries(row)) if (c.t === 'o' && (c.k === 'req' || c.k === 'paid')) keep[d] = c;
+      mon.cells[sid] = keep;
+    }
+    mon.updatedAt = Date.now();
+    const changed = new Set(Object.keys(row).filter(d => JSON.stringify(row[d]) !== JSON.stringify(mon.cells[sid]?.[d] || null)).map(d => `${sid}:${d}`));
+    logHistory(ym, 'reset', `${p.name}さんを${all ? 'すべて' : 'シフトのみ'}リセット`, snap);
+    ui.undo = { ym, cells: snap, wants: wantsSnap, label: `${p.name}さんのリセット`, changed };
+    DB.save(); closeModal(); render();
+    toast(`${p.name}さんの${all ? 'この月のデータをすべて' : 'シフトを'}リセットしました`);
+  }
 
   function openHistory() {
     const list = S().months[ui.ym]?.history || [];

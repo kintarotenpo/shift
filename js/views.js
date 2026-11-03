@@ -79,7 +79,8 @@ const V = (() => {
     // 見出し（スタッフが列）
     let h = `<div class="table-wrap${opts.export ? ' export' : ''}"><table class="mtable"><thead><tr><th class="date-col corner">日付</th>`;
     for (const p of staff) {
-      h += `<th class="staff-h${meCls(p)}" data-col="${p.id}"><div class="nm">${esc(p.name)}${editor && p.appraiser ? '<span class="apr">査</span>' : ''}</div>
+      const menu = editor && !opts.export ? ` clickable" data-act="staff-menu" data-sid="${p.id}" title="${esc(p.name)}さんのシフトをリセット` : '';
+      h += `<th class="staff-h${meCls(p)}${menu}" data-col="${p.id}"><div class="nm">${esc(p.name)}${editor && p.appraiser ? '<span class="apr">査</span>' : ''}</div>
         <div class="sub">${esc(p.type)}${editor ? '・' + esc(M.mainLabel(p)) : ''}</div></th>`;
     }
     stores.forEach((st, i) => {
