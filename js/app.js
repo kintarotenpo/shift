@@ -99,7 +99,15 @@ const App = (() => {
     document.addEventListener('change', onChange);
     document.addEventListener('input', onInput);
     document.addEventListener('toggle', onToggle, true);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeModal();
+      // Ctrl/⌘+Z でもとに戻す、Ctrl/⌘+Shift+Z・Ctrl+Y でやり直す（入力中・ダイアログ表示中は除く）
+      if (ui.mode !== 'editor' || !(e.ctrlKey || e.metaKey) || $('#modalRoot').innerHTML || document.querySelector('.confirm-layer')) return;
+      if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoStep(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redoStep(); }
+    });
     window.addEventListener('hashchange', () => location.reload());
     const mq = window.matchMedia('(max-width: 760px)');
     const onBp = () => { if (ui.tab === 'day') { lastViewKey = ''; renderView(); } };
@@ -156,6 +164,10 @@ const App = (() => {
     tb.innerHTML = inAppNote + `<div class="tb-group">
         <button class="btn dark" data-act="req-input">シフトを作成</button>
         <button class="btn" data-act="fix">アラート自動調整</button>
+        <span class="undo-pair">
+          <button class="btn" data-act="hist-undo" ${stack.undo.length ? `title="「${U.esc(stack.undo[stack.undo.length - 1].label)}」をもとに戻す"` : 'disabled'}>↶ もとに戻す</button>
+          <button class="btn" data-act="hist-redo" ${stack.redo.length ? `title="「${U.esc(stack.redo[stack.redo.length - 1].label)}」をやり直す"` : 'disabled'}>↷ やり直す</button>
+        </span>
         <select class="sel" data-change="status" aria-label="状態">
           <option value="draft" ${mon?.status !== 'final' ? 'selected' : ''}>暫定</option>
           <option value="final" ${mon?.status === 'final' ? 'selected' : ''}>確定</option></select>
@@ -176,7 +188,7 @@ const App = (() => {
     if (ui.mode === 'viewer' || ui.tab === 'leave' || ui.tab === 'settings' || !S().months[ui.ym]) { el.innerHTML = ''; return; }
     const u = ui.undo && ui.undo.ym === ui.ym ? ui.undo : null;
     const undoBar = u ? `<div class="undo-bar"><span>${u.label}で <b>${u.changed.size}セル</b> を変更しました${u.changed.size ? '（変更箇所は点線の枠で表示）' : ''}</span>
-      <span class="undo-btns"><button class="btn sm dark" data-act="undo">元に戻す</button><button class="btn sm ghost" data-act="undo-dismiss">確定</button></span></div>` : '';
+      <span class="undo-btns"><button class="btn sm dark" data-act="hist-undo">もとに戻す</button><button class="btn sm ghost" data-act="undo-dismiss">確定</button></span></div>` : '';
     const L = alerts.list;
     if (!L.length) {
       const has = Object.values(S().months[ui.ym].cells || {}).some(r => Object.keys(r || {}).length);
@@ -316,7 +328,9 @@ const App = (() => {
     }
     const ch = el.dataset.change;
     if (ch === 'status') {
+      const histSnap = monthSnap(ui.ym);
       DB.month(ui.ym).status = el.value;
+      record(ui.ym, el.value === 'final' ? '状態を確定に変更' : '状態を暫定に変更', histSnap);
       logHistory(ui.ym, 'status', el.value === 'final' ? '状態を「確定」に変更' : '状態を「暫定」に変更');
       DB.save(); render();
       toast(el.value === 'final' ? '確定にしました。共有ボタンから最新版を送ってください' : '暫定に戻しました');
@@ -355,17 +369,8 @@ const App = (() => {
     },
     'req-input': openRequestModal,
     'req-mode': t => { saveReqDraft(); ui.reqMode = t.dataset.mode; renderRequestModal(); },
-    'undo': () => {
-      const u = ui.undo;
-      if (!u) return;
-      const cur = JSON.stringify(DB.month(u.ym).cells);
-      DB.month(u.ym).cells = JSON.parse(u.cells);
-      if (u.wants !== undefined) DB.month(u.ym).wants = JSON.parse(u.wants);
-      if (u.fullWork !== undefined) DB.month(u.ym).fullWork = JSON.parse(u.fullWork);
-      logHistory(u.ym, 'undo', `${u.label}を元に戻した`, cur);
-      ui.undo = null; DB.save(); render();
-      toast(`${u.label}の前の状態に戻しました`);
-    },
+    'hist-undo': undoStep,
+    'hist-redo': redoStep,
     'undo-dismiss': () => { ui.undo = null; render(); },
     'staff-menu': t => openStaffMenu(t.dataset.sid),
     'staff-reset': t => resetStaff(t.dataset.sid, t.dataset.mode),
@@ -383,9 +388,11 @@ const App = (() => {
       if (!await ask(`${ymLabel()}のシフトを白紙に戻します（希望休・有給も消えます）。よろしいですか？`, { ok: '白紙に戻す', danger: true })) return;
       const old = S().months[ui.ym];
       const before = JSON.stringify(old?.cells || {});
+      const histSnap = monthSnap(ui.ym);
       delete S().months[ui.ym];
       DB.month(ui.ym).history = old?.history || [];
       logHistory(ui.ym, 'clear', 'この月を白紙に戻した（希望休・有給・出勤希望も削除）', before);
+      record(ui.ym, '月の白紙化', histSnap);
       dropUndo(); DB.save(); render(); toast('白紙に戻しました');
     },
     'csv-export': csvExport,
@@ -493,10 +500,11 @@ const App = (() => {
   /** only: 対象スタッフID の Set（「入力スタッフのみ反映」時） */
   async function runScheduler(fresh, only = null) {
     if (!S().stores.length || !S().staff.length) { toast('先に「設定」で店舗とスタッフを登録してください'); return; }
-    if (!fresh && !await ask('現在のシフトを自動で調整します。\n希望休・有給・出勤希望・固定したセルは変わりません。\n\n調整後に「元に戻す」で取り消せます。また、改善しなかった場合は自動で元のシフトに戻します。', { ok: '調整する' })) return;
+    if (!fresh && !await ask('現在のシフトを自動で調整します。\n希望休・有給・出勤希望・固定したセルは変わりません。\n\n調整後に「もとに戻す」で取り消せます。また、改善しなかった場合は自動で元のシフトに戻します。', { ok: '調整する' })) return;
     const ym = ui.ym;
     const mon = DB.month(ym);
     const snap = JSON.stringify(mon.cells);
+    const histSnap = monthSnap(ym);
     const beforeList = Alerts.compute(S(), ym).list;
     const before = Alerts.score(beforeList, S());
     busy(true, fresh ? 'シフトを自動作成しています…' : 'アラートを調整しています…');
@@ -518,7 +526,8 @@ const App = (() => {
             if (JSON.stringify(prev[p.id]?.[d] || null) !== JSON.stringify(mon.cells[p.id]?.[d] || null)) changed.add(`${p.id}:${d}`);
           }
         }
-        ui.undo = { ym, cells: snap, label: fresh ? '自動作成' : '自動調整', changed };
+        ui.undo = { ym, label: fresh ? '自動作成' : '自動調整', changed };
+        record(ym, fresh ? 'シフトの自動作成' : 'アラート自動調整', histSnap);
         const names = { short: '人員不足', appraiser: '査定員不在', streak: '連勤超過', warn: 'その他' };
         const cnt = (L, t) => L.filter(x => x.type === t).length;
         const diff = Object.keys(names).filter(t => cnt(beforeList, t) !== cnt(afterList, t))
@@ -539,7 +548,7 @@ const App = (() => {
   }
   /* ---------- 変更履歴（月ごとに最大100件） ---------- */
   const H_TYPES = {
-    edit: '手動編集', reset: 'リセット', bulk: '店舗一括変更', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望日',
+    edit: '手動編集', reset: 'リセット', bulk: '店舗一括変更', auto: '自動作成', fix: '自動調整', undo: 'もとに戻す', redo: 'やり直す', req: '希望休', want: '出勤希望日',
     csv: 'CSV読込', clear: '白紙', status: '状態変更', share: '共有',
   };
   const cellLabel = c => (c ? CSV.cellText(c, S()) : '') || '未設定';
@@ -565,8 +574,50 @@ const App = (() => {
     if (mon.history.length > 100) mon.history.length = 100;
   }
 
-  /** 手動で編集したら、自動処理の取り消しは無効にする（手動の変更まで消えないように） */
+  /** 自動処理の「変更箇所の点線表示」を消す */
   const dropUndo = () => { ui.undo = null; };
+
+  /* ---------- もとに戻す / やり直す（直近50操作・ページを開き直すと消えます） ---------- */
+  const stack = { undo: [], redo: [] };
+  const monthSnap = ym => {
+    const m = S().months[ym];
+    return JSON.stringify({ cells: m?.cells || {}, wants: m?.wants || {}, fullWork: m?.fullWork || {}, status: m?.status || 'draft' });
+  };
+  function restoreSnap(ym, snap) {
+    const o = JSON.parse(snap), m = DB.month(ym);
+    m.cells = o.cells; m.wants = o.wants; m.fullWork = o.fullWork; m.status = o.status;
+    m.updatedAt = Date.now();
+  }
+  /** 操作の前の状態（monthSnap）を渡して記録する。変化がなければ記録しない */
+  function record(ym, label, before) {
+    const after = monthSnap(ym);
+    if (after === before) return;
+    stack.undo.push({ ym, label, before, after });
+    if (stack.undo.length > 50) stack.undo.shift();
+    stack.redo = [];
+  }
+  function undoStep() {
+    const e = stack.undo.pop();
+    if (!e) { toast('もとに戻せる操作はありません'); return; }
+    const cur = JSON.stringify(DB.month(e.ym).cells);
+    restoreSnap(e.ym, e.before);
+    stack.redo.push(e);
+    logHistory(e.ym, 'undo', `「${e.label}」をもとに戻した`, cur);
+    ui.undo = null; ui.ym = e.ym;
+    DB.save(); render();
+    toast(`「${e.label}」をもとに戻しました`);
+  }
+  function redoStep() {
+    const e = stack.redo.pop();
+    if (!e) { toast('やり直せる操作はありません'); return; }
+    const cur = JSON.stringify(DB.month(e.ym).cells);
+    restoreSnap(e.ym, e.after);
+    stack.undo.push(e);
+    logHistory(e.ym, 'redo', `「${e.label}」をやり直した`, cur);
+    ui.undo = null; ui.ym = e.ym;
+    DB.save(); render();
+    toast(`「${e.label}」をやり直しました`);
+  }
 
   /* ---------- スタッフ個別のリセット ---------- */
   function openStaffMenu(sid) {
@@ -587,7 +638,7 @@ const App = (() => {
           <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="all">
             <b>すべてリセット</b><span class="muted">この月の希望休・有給・出勤希望日も含めて白紙にします</span></button>
         </div>
-        <p class="tiny muted">リセット後は「シフトを作成」で「入力スタッフのみ反映」を使うと、このスタッフだけ作り直せます。「元に戻す」で取り消しもできます。</p>
+        <p class="tiny muted">リセット後は「シフトを作成」で「入力スタッフのみ反映」を使うと、このスタッフだけ作り直せます。「もとに戻す」で取り消しもできます。</p>
       </div>`);
   }
   /* ---------- 出勤店舗の一括変更 ---------- */
@@ -607,7 +658,7 @@ const App = (() => {
         <label class="chk"><input type="checkbox" id="bulkTimes" checked> 勤務時間を変更先の店舗の営業時間に合わせる（基本勤務時間をもとに再設定）</label>
         <p class="tiny muted">・変更先の店舗が定休日の日は変更せず、そのまま残します<br>
           ・変更した日は「固定」になり、アラート自動調整で元に戻りません<br>
-          ・実行後に「元に戻す」で取り消せます</p>
+          ・実行後に「もとに戻す」で取り消せます</p>
       </div>
       <div class="modal-foot"><button class="btn ghost" data-act="staff-menu-back" data-sid="${sid}">戻る</button>
         <button class="btn primary" data-act="store-bulk-apply" data-sid="${sid}">一括変更する</button></div>`);
@@ -620,6 +671,7 @@ const App = (() => {
     if (!M.canWork(p, st.id) && !await ask(`${st.name}は${p.name}さんの対応店舗に含まれていません。それでも変更しますか？`, { ok: '変更する' })) return;
     const ym = ui.ym, mon = DB.month(ym), [y, m] = U.parseYM(ym);
     const snap = JSON.stringify(mon.cells);
+    const histSnap = monthSnap(ym);
     const row = mon.cells[sid] || {};
     const changed = new Set(), skipped = [];
     for (const [d, c] of Object.entries(row)) {
@@ -639,7 +691,8 @@ const App = (() => {
     }
     const skipNote = skipped.length ? `（定休日のため ${skipped.sort((a, b) => a - b).join('・')}日 は変更せず）` : '';
     logHistory(ym, 'bulk', `${p.name}さんの出勤店舗を${st.name}に一括変更${skipNote}`, snap);
-    ui.undo = { ym, cells: snap, label: `${p.name}さんの店舗一括変更`, changed };
+    ui.undo = { ym, label: `${p.name}さんの店舗一括変更`, changed };
+    record(ym, `${p.name}さんの店舗一括変更`, histSnap);
     DB.save(); render();
     toast(`${p.name}さんの出勤${changed.size}日を${st.name}に変更しました${skipNote}`);
   }
@@ -649,7 +702,7 @@ const App = (() => {
     const all = mode === 'all';
     if (!await ask(`${p.name}さんの${ymLabel()}の${all ? 'シフト・希望休・有給・出勤希望日をすべて' : 'シフト（出勤・休(自動)）を'}リセットします。よろしいですか？`, { ok: 'リセットする', danger: true })) return;
     const ym = ui.ym, mon = DB.month(ym);
-    const snap = JSON.stringify(mon.cells), wantsSnap = JSON.stringify(mon.wants || {}), fullSnap = JSON.stringify(mon.fullWork || {});
+    const snap = JSON.stringify(mon.cells), histSnap = monthSnap(ym);
     const row = mon.cells[sid] || {};
     if (all) {
       delete mon.cells[sid];
@@ -663,7 +716,8 @@ const App = (() => {
     mon.updatedAt = Date.now();
     const changed = new Set(Object.keys(row).filter(d => JSON.stringify(row[d]) !== JSON.stringify(mon.cells[sid]?.[d] || null)).map(d => `${sid}:${d}`));
     logHistory(ym, 'reset', `${p.name}さんを${all ? 'すべて' : 'シフトのみ'}リセット`, snap);
-    ui.undo = { ym, cells: snap, wants: wantsSnap, fullWork: fullSnap, label: `${p.name}さんのリセット`, changed };
+    ui.undo = { ym, label: `${p.name}さんのリセット`, changed };
+    record(ym, `${p.name}さんのリセット`, histSnap);
     DB.save(); closeModal(); render();
     toast(`${p.name}さんの${all ? 'この月のデータをすべて' : 'シフトを'}リセットしました`);
   }
@@ -772,6 +826,7 @@ const App = (() => {
     if (dup.length && !await ask(`同じスタッフが複数行あります（${[...new Set(dup)].map(id => M.staff(id).name).join('、')}）。まとめて反映しますか？`)) return;
     const mon = DB.month(ui.ym);
     const histBefore = JSON.stringify(mon.cells);
+    const histSnap = monthSnap(ui.ym);
     const replace = $('#reqReplace').checked;
     const onlyInput = $('#reqOnlyInput').checked;
     ui.reqOnlyInput = onlyInput;
@@ -817,6 +872,7 @@ const App = (() => {
     const note = rows.map(r => `${M.staff(r.staffId)?.name}：${r.days.map(x => x.d + (x.paid && !want ? '有' : '')).join(',')}`).join('\n');
     logHistory(ui.ym, want ? 'want' : 'req',
       `${want ? '出勤希望日' : '希望休'}を入力（${rows.length}名・${n}日${!want && ui.reqFullWork ? '・希望休以外は出勤' : ''}${replace ? '・置き換え' : ''}）`, histBefore, note);
+    record(ui.ym, want ? '出勤希望日の入力' : '希望休の入力', histSnap);
     dropUndo();
     DB.save(); closeModal();
     if (auto) runScheduler(true, onlyInput ? targets : null);
@@ -874,9 +930,11 @@ const App = (() => {
     } else if (type === 'req' || type === 'paid') v = { t: 'o', k: type };
     else if (type === 'auto') { v = { t: 'o', k: 'auto' }; if (lk) v.lk = 1; }
     const before = JSON.stringify(DB.month(ui.ym).cells);
+    const histSnap = monthSnap(ui.ym);
     DB.setCell(ui.ym, editing.sid, editing.d, v);
     const [, m] = U.parseYM(ui.ym);
     logHistory(ui.ym, 'edit', `${M.staff(editing.sid)?.name || ''} ${m}/${editing.d} を編集`, before);
+    record(ui.ym, `${M.staff(editing.sid)?.name || ''} ${m}/${editing.d} の編集`, histSnap);
     dropUndo();
     DB.save(); closeModal(); render();
   }
@@ -963,8 +1021,10 @@ const App = (() => {
     if (!await ask(msg + '\n\nよろしいですか？', { ok: '読み込む' })) return;
     const mon = DB.month(ui.ym);
     const histBefore = JSON.stringify(mon.cells);
+    const histSnap = monthSnap(ui.ym);
     for (const [sid, row] of parsed) mon.cells[sid] = row;
     logHistory(ui.ym, 'csv', `CSVを読み込み（${parsed.length}名分）`, histBefore);
+    record(ui.ym, 'CSVの読み込み', histSnap);
     dropUndo();
     mon.updatedAt = Date.now();
     DB.save(); render(); toast('CSVを読み込みました');
