@@ -20,7 +20,7 @@ const Scheduler = (() => {
       days.push({ open, req: open.reduce((a, o) => a + o.req, 0), map: Object.fromEntries(open.map(o => [o.id, o])) });
     }
     return {
-      y, m, N, days, staff: state.staff, S: state.staff.length,
+      y, m, N, days, staff: state.staff, S: state.staff.length, stores: state.stores,
       maxC: +state.settings.maxConsecutive || 5,
       useApr: state.staff.some(p => p.appraiser),
       aprStores: new Set(state.stores.filter(st => st.aprAlert !== false).map(st => st.id)), // 査定員が必要な店舗
@@ -29,6 +29,11 @@ const Scheduler = (() => {
   }
 
   const can = (ctx, i, sid) => M.canWork(ctx.staff[i], sid);
+
+  /** 対応店舗のいずれかが臨時休業日で、その日は勤務できない（休日数にカウントしない） */
+  function tempClosed(ctx, i, d) {
+    return ctx.stores.some(st => M.canWork(ctx.staff[i], st.id) && M.inDateList(st.closedDates, ctx.y, ctx.m, d));
+  }
 
   /** wants: 出勤希望 { staffId: { days: [日], only: 記載日のみ出勤 } } */
   /** only: 対象スタッフID の Set（指定時は対象外スタッフのシフトをそのまま残す） */
@@ -63,7 +68,7 @@ const Scheduler = (() => {
           if (c.t === 'w') l[d] = { s: c.s, st: c.st, en: c.en };
           else { w[d] = false; k[d] = c.k || 'auto'; }
         }
-        else if (!capable) { w[d] = false; f[d] = true; k[d] = 'auto'; }
+        else if (!capable) { w[d] = false; f[d] = true; k[d] = tempClosed(ctx, i, d) ? 'closed' : 'auto'; }
         else if (wantDays.has(d)) { w[d] = true; f[d] = true; ws[d] = true; }    // 出勤希望日は必ず出勤
         else if (full) { w[d] = true; f[d] = true; }                              // 希望休以外は出勤
         else if (want && want.only) { w[d] = false; f[d] = true; k[d] = 'auto'; } // 記載のない日は休み
@@ -223,7 +228,7 @@ const Scheduler = (() => {
       if (w[d]) { run++; continue; }
       if (run > maxC) pen += W.streak * (run - maxC);
       run = 0;
-      if (k[d] !== 'paid') off++;
+      if (k[d] !== 'paid' && k[d] !== 'closed') off++; // 有給・臨時休業は休日数に含めない
       if (d > 1 && !w[d - 1] && !(f[d] && f[d - 1])) pen += W.pair;
     }
     if (run > maxC) pen += W.streak * (run - maxC);
@@ -241,7 +246,7 @@ const Scheduler = (() => {
     for (let i = 0; i < S; i++) for (let d = 1; d <= N; d++) if (P.work[i][d]) cnt[d]++;
     const need = staff.map((p, i) => {
       let off = 0;
-      for (let d = 1; d <= N; d++) if (!P.work[i][d] && P.kind[i][d] !== 'paid') off++;
+      for (let d = 1; d <= N; d++) if (!P.work[i][d] && P.kind[i][d] !== 'paid' && P.kind[i][d] !== 'closed') off++;
       return Math.max(0, (+p.offDays || 0) - off);
     });
     const isOff = (i, d) => d >= 1 && d <= N && !P.work[i][d];
@@ -343,7 +348,7 @@ const Scheduler = (() => {
       for (let d = 1; d <= ctx.N; d++) {
         if (P.keep[i][d]) { const c = cells[p.id]?.[d]; if (c) row[d] = c; continue; }
         if (P.work[i][d] && asg[i][d]) row[d] = P.wish[i][d] ? { t: 'w', ...asg[i][d], wish: 1 } : { t: 'w', ...asg[i][d] };
-        else row[d] = { t: 'o', k: 'auto' };
+        else row[d] = { t: 'o', k: P.kind[i][d] === 'closed' ? 'closed' : 'auto' };
       }
       out[p.id] = row;
     });
@@ -522,7 +527,7 @@ const CSV = {
   },
   cellText(c, state) {
     if (!c) return '';
-    if (c.t === 'o') return { req: '休(希望)', paid: '休(有給)' }[c.k] || '休(自動)';
+    if (c.t === 'o') return { req: '休(希望)', paid: '休(有給)', closed: '休(臨時休業)' }[c.k] || '休(自動)';
     const st = state.stores.find(s => s.id === c.s);
     return `${st ? st.name : '?'} ${U.toHM(c.st)}-${U.toHM(c.en)}`;
   },
@@ -532,6 +537,7 @@ const CSV = {
     if (!s) return null;
     if (/有給|有休/.test(s)) return { t: 'o', k: 'paid' };
     if (/希望/.test(s)) return { t: 'o', k: 'req' };
+    if (/臨時|臨休/.test(s)) return { t: 'o', k: 'closed' };
     if (/^休|公休|自動/.test(s)) return { t: 'o', k: 'auto' };
     const tm = s.match(/(\d{1,2})(?::(\d{2}))?\s*[-~〜～]\s*(\d{1,2})(?::(\d{2}))?/);
     const nm = U.normName(tm ? s.replace(tm[0], '') : s);

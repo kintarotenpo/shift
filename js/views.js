@@ -7,6 +7,7 @@ const V = (() => {
     req: { s: '希望', c: 'o-req', full: '休(希望)' },
     paid: { s: '有給', c: 'o-paid', full: '休(有給)' },
     auto: { s: '自動', c: 'o-auto', full: '休(自動)' },
+    closed: { s: '臨休', c: 'o-auto', full: '休(臨時休業)' },
   };
   // 閲覧者には休みの区分を見せない（すべてグレーの「休」）
   const OFF_VIEW = { s: '', c: 'o-view', full: '休' };
@@ -40,6 +41,7 @@ const V = (() => {
       <span class="lg"><span class="offchip o-req">休</span>希望休</span>
       <span class="lg"><span class="offchip o-paid">休</span>有給</span>
       <span class="lg"><span class="offchip o-auto">休</span>自動休</span>
+      <span class="lg"><span class="offchip o-auto">臨</span>臨時休業（休日数に含めない）</span>
       <span class="lg"><span class="streak-chip"></span>連勤超過</span>
       <span class="lg"><span class="apr">査</span>査定員</span>
       <span class="lg"><span class="wish-chip"></span>出勤希望日</span>
@@ -89,7 +91,7 @@ const V = (() => {
     h += `</tr></thead><tbody>`;
 
     // 本文（日付が行）
-    const sums = staff.map(() => ({ work: 0, off: 0, paid: 0 }));
+    const sums = staff.map(() => ({ work: 0, off: 0, paid: 0, closed: 0 }));
     for (let d = 1; d <= N; d++) {
       const hn = U.holidayName(y, m, d);
       const today = isToday(y, m, d);
@@ -100,7 +102,8 @@ const V = (() => {
         const c = cells[p.id]?.[d] || null;
         if (c && c.t === 'w') sums[i].work++;
         else if (c && c.k === 'paid') sums[i].paid++;
-        else if (c) sums[i].off++;
+        else if (c && c.k === 'closed') sums[i].closed++;
+        else if (c) sums[i].off++; // 取得休 = 希望休 + 自動で組まれた休日
         const chg = !opts.export && ui.undo && ui.undo.ym === ui.ym && ui.undo.changed.has(`${p.id}:${d}`);
         h += cellHTML(state, p, d, c, { streak: alerts.streak.has(`${p.id}:${d}`), today, me: !!meCls(p), ui, chg });
       });
@@ -119,14 +122,20 @@ const V = (() => {
 
     // 集計（行）
     h += `</tbody><tfoot>`;
-    const rows = [['出勤', 'work'], ['休', 'off'], ['有給', 'paid']];
+    // 休日合計 = 取得休 + 有給 + 臨時休
+    sums.forEach(x => { x.total = x.off + x.paid + x.closed; });
+    // 閲覧者には休みの区分を渡していないため、出勤と休日合計のみ表示
+    const rows = editor
+      ? [['出勤', 'work'], ['休日合計', 'total'], ['取得休', 'off'], ['有給', 'paid'], ['臨時休', 'closed']]
+      : [['出勤', 'work'], ['休日合計', 'total']];
     rows.forEach(([label, key], ri) => {
-      h += `<tr class="${ri === 0 ? 'first' : ''}"><th class="date-col sum-h">${label}</th>`;
+      h += `<tr class="${ri === 0 ? 'first' : ''}${key === 'total' ? ' total' : ''}${key !== 'work' && key !== 'total' ? ' sub' : ''}"><th class="date-col sum-h">${label}</th>`;
       staff.forEach((p, i) => {
         const v = sums[i][key];
         const target = +p.offDays;
         const diff = key === 'off' && editor && !isNaN(target) && v !== target;
-        h += `<td class="sum${diff ? ' diff' : ''}${meCls(p)}" ${key === 'off' && editor ? `title="目安 ${target}日"` : ''}>${v}</td>`;
+        const title = key === 'off' && editor ? `title="希望休＋自動で組まれた休日（目安 ${target}日）"` : '';
+        h += `<td class="sum${diff ? ' diff' : ''}${meCls(p)}" ${title}>${v}</td>`;
       });
       if (stores.length) h += `<td colspan="${stores.length}" class="first"></td>`;
       h += `</tr>`;
@@ -388,7 +397,7 @@ const V = (() => {
         <div class="f-row"><label>査定員</label><div><label class="switch"><input type="checkbox" ${b('appraiser', 'data-type="bool"')} ${p.appraiser ? 'checked' : ''}><span></span>査定員</label>
           <span class="hint">各店舗に査定員が1人もいない日はアラートを表示し、自動作成でも優先して配置します</span></div></div>
         <div class="f-row"><label>月の休日数</label><div><input type="number" min="0" max="31" class="w-num" ${b('offDays', 'data-type="num"')} value="${esc(p.offDays)}"> 日
-          <span class="hint">自動作成で確保する休みの目安（希望休を含む・有給は含まない）</span></div></div>
+          <span class="hint">自動作成で確保する休みの目安（希望休を含む・有給と臨時休業日は含まない）</span></div></div>
       </div>
       <div class="card-foot">
         <button class="btn sm ghost" data-act="move" data-kind="staff" data-id="${p.id}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑ 上へ</button>

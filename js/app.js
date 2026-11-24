@@ -830,7 +830,7 @@ const App = (() => {
     const [y, m] = U.parseYM(ui.ym);
     const c = DB.cell(ui.ym, sid, d);
     editing = { sid, d };
-    const type = preset.store ? 'w' : (!c ? 'none' : c.t === 'w' ? 'w' : c.k);
+    const type = preset.store ? 'w' : (!c ? 'none' : c.t === 'w' ? 'w' : (c.k === 'closed' ? 'auto' : c.k));
     const curStore = preset.store || (c && c.t === 'w' ? c.s : (p.main !== 'free' ? p.main : S().stores[0]?.id));
     const stores = S().stores.map(st => {
       const sd = M.storeDay(st, y, m, d);
