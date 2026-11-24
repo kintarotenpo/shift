@@ -226,6 +226,10 @@ main { max-width: 1600px; margin: 0 auto; padding: 0 20px; }
 .mtable tfoot th, .mtable tfoot td { background: #FBFAF6; height: 30px; }
 .mtable tfoot tr.first > * { border-top: 2px solid var(--line); }
 .mtable .sum-h { font-size: 12px; font-weight: 700; color: var(--muted); }
+.mtable tfoot tr.total .sum-h, .mtable tfoot tr.total .sum { color: var(--ink); font-weight: 900; }
+.mtable tfoot tr.total > * { border-top: 1px solid var(--line); }
+.mtable tfoot tr.sub .sum-h { padding-left: 18px; font-weight: 500; }
+.mtable tfoot tr.sub .sum { font-weight: 500; }
 .sum { font-weight: 700; font-size: 13px; }
 .sum.diff { color: var(--orange); }
 /* 店舗別の人数 */
