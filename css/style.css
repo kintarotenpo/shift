@@ -523,7 +523,7 @@ details.hist[open] { border-color: var(--ink); }
 .h-type.t-edit { background: var(--y); color: #000; }
 .h-type.t-bulk { background: var(--y); color: #000; }
 .pick:disabled { opacity: .45; cursor: default; }
-.h-type.t-undo, .h-type.t-clear, .h-type.t-reset { background: var(--red-soft); color: var(--red); }
+.h-type.t-undo, .h-type.t-redo, .h-type.t-clear, .h-type.t-reset { background: var(--red-soft); color: var(--red); }
 .h-type.t-req, .h-type.t-want { background: var(--y-soft); color: #8A6A00; }
 .h-type.t-share, .h-type.t-status { background: var(--green-soft); color: var(--green); }
 .h-sum { flex: 1; min-width: 160px; font-size: 13px; }
@@ -532,6 +532,10 @@ details.hist[open] { border-color: var(--ink); }
 .h-diffs { list-style: none; margin: 0; padding: 0 10px 10px; display: grid; gap: 3px; font-size: 12px; max-height: 260px; overflow: auto; }
 .h-before { color: var(--muted); text-decoration: line-through; }
 .h-after { font-weight: 700; }
+
+/* もとに戻す・やり直す */
+.undo-pair { display: inline-flex; gap: 4px; }
+.undo-pair .btn:disabled { opacity: .35; }
 
 /* 確認ダイアログ */
 .confirm-layer { z-index: 120; align-items: center !important; padding: 16px !important; }
