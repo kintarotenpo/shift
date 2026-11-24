@@ -369,6 +369,9 @@ const App = (() => {
     'undo-dismiss': () => { ui.undo = null; render(); },
     'staff-menu': t => openStaffMenu(t.dataset.sid),
     'staff-reset': t => resetStaff(t.dataset.sid, t.dataset.mode),
+    'store-bulk': t => openStoreBulk(t.dataset.sid),
+    'store-bulk-apply': t => applyStoreBulk(t.dataset.sid),
+    'staff-menu-back': t => openStaffMenu(t.dataset.sid),
     'history': openHistory,
     'history-clear': async () => {
       if (!await ask(`${ymLabel()}の変更履歴をすべて消去しますか？（シフト自体は変わりません）`, { ok: '消去する', danger: true })) return;
@@ -536,7 +539,7 @@ const App = (() => {
   }
   /* ---------- 変更履歴（月ごとに最大100件） ---------- */
   const H_TYPES = {
-    edit: '手動編集', reset: 'リセット', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望日',
+    edit: '手動編集', reset: 'リセット', bulk: '店舗一括変更', auto: '自動作成', fix: '自動調整', undo: '元に戻す', req: '希望休', want: '出勤希望日',
     csv: 'CSV読込', clear: '白紙', status: '状態変更', share: '共有',
   };
   const cellLabel = c => (c ? CSV.cellText(c, S()) : '') || '未設定';
@@ -577,6 +580,8 @@ const App = (() => {
       <div class="modal-body">
         <p class="hint">現在：出勤 ${work}日 ・ 希望休/有給 ${req}日${wish ? ` ・ 出勤希望日 ${wish}日` : ''}</p>
         <div class="pick-list">
+          <button class="pick" data-act="store-bulk" data-sid="${sid}" ${work ? '' : 'disabled'}>
+            <b>出勤店舗一括変更</b><span class="muted">${work ? 'この月の出勤日の店舗を、すべてひとつの店舗に変更します' : '出勤日がないため変更できません'}</span></button>
           <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="shift">
             <b>シフトのみリセット</b><span class="muted">出勤・休(自動)を消します。希望休・有給・出勤希望日は残します</span></button>
           <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="all">
@@ -585,6 +590,60 @@ const App = (() => {
         <p class="tiny muted">リセット後は「シフトを作成」で「入力スタッフのみ反映」を使うと、このスタッフだけ作り直せます。「元に戻す」で取り消しもできます。</p>
       </div>`);
   }
+  /* ---------- 出勤店舗の一括変更 ---------- */
+  function openStoreBulk(sid) {
+    const p = M.staff(sid);
+    const row = S().months[ui.ym]?.cells?.[sid] || {};
+    const work = Object.values(row).filter(c => c.t === 'w');
+    const cur = S().stores.map(st => ({ st, n: work.filter(c => c.s === st.id).length })).filter(x => x.n);
+    const def = p.main !== 'free' && M.store(p.main) ? p.main : S().stores[0]?.id;
+    openModal(`${modalHead(`${U.esc(p.name)}さん <small>出勤店舗一括変更</small>`)}
+      <div class="modal-body">
+        <p class="hint">${ymLabel()}の出勤日（${work.length}日）の店舗を、選んだ店舗にすべて変更します。<br>
+          現在：${cur.map(x => `${U.esc(x.st.name)} ${x.n}日`).join(' ・ ') || 'なし'}</p>
+        <div class="f-row"><label>変更先の店舗</label><select id="bulkStore">
+          ${S().stores.map(st => `<option value="${st.id}" ${st.id === def ? 'selected' : ''}>${U.esc(st.name)}${M.canWork(p, st.id) ? '' : '（対応外）'}</option>`).join('')}
+        </select></div>
+        <label class="chk"><input type="checkbox" id="bulkTimes" checked> 勤務時間を変更先の店舗の営業時間に合わせる（基本勤務時間をもとに再設定）</label>
+        <p class="tiny muted">・変更先の店舗が定休日の日は変更せず、そのまま残します<br>
+          ・変更した日は「固定」になり、アラート自動調整で元に戻りません<br>
+          ・実行後に「元に戻す」で取り消せます</p>
+      </div>
+      <div class="modal-foot"><button class="btn ghost" data-act="staff-menu-back" data-sid="${sid}">戻る</button>
+        <button class="btn primary" data-act="store-bulk-apply" data-sid="${sid}">一括変更する</button></div>`);
+  }
+  async function applyStoreBulk(sid) {
+    const p = M.staff(sid);
+    const st = M.store($('#bulkStore').value);
+    const fitTimes = $('#bulkTimes').checked;
+    if (!st) return;
+    if (!M.canWork(p, st.id) && !await ask(`${st.name}は${p.name}さんの対応店舗に含まれていません。それでも変更しますか？`, { ok: '変更する' })) return;
+    const ym = ui.ym, mon = DB.month(ym), [y, m] = U.parseYM(ym);
+    const snap = JSON.stringify(mon.cells);
+    const row = mon.cells[sid] || {};
+    const changed = new Set(), skipped = [];
+    for (const [d, c] of Object.entries(row)) {
+      if (c.t !== 'w') continue;
+      const sd = M.storeDay(st, y, m, +d);
+      if (!sd) { if (c.s !== st.id) skipped.push(+d); continue; }
+      const [a, b] = fitTimes ? M.defaultTimes(p, sd) : [c.st, c.en];
+      const next = { ...c, s: st.id, st: a, en: b, lk: 1 };
+      if (JSON.stringify(next) !== JSON.stringify(c)) { row[d] = next; changed.add(`${sid}:${d}`); }
+    }
+    mon.updatedAt = Date.now();
+    closeModal();
+    if (!changed.size) {
+      render();
+      toast(skipped.length ? `定休日のため変更できる日がありませんでした（${skipped.sort((a, b) => a - b).join('・')}日）` : `すでにすべて${st.name}です`);
+      return;
+    }
+    const skipNote = skipped.length ? `（定休日のため ${skipped.sort((a, b) => a - b).join('・')}日 は変更せず）` : '';
+    logHistory(ym, 'bulk', `${p.name}さんの出勤店舗を${st.name}に一括変更${skipNote}`, snap);
+    ui.undo = { ym, cells: snap, label: `${p.name}さんの店舗一括変更`, changed };
+    DB.save(); render();
+    toast(`${p.name}さんの出勤${changed.size}日を${st.name}に変更しました${skipNote}`);
+  }
+
   async function resetStaff(sid, mode) {
     const p = M.staff(sid);
     const all = mode === 'all';
