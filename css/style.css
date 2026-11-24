@@ -517,6 +517,8 @@ details.hist[open] { border-color: var(--ink); }
 .h-type { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 6px; background: var(--line2); }
 .h-type.t-auto, .h-type.t-fix { background: var(--k); color: var(--y); }
 .h-type.t-edit { background: var(--y); color: #000; }
+.h-type.t-bulk { background: var(--y); color: #000; }
+.pick:disabled { opacity: .45; cursor: default; }
 .h-type.t-undo, .h-type.t-clear, .h-type.t-reset { background: var(--red-soft); color: var(--red); }
 .h-type.t-req, .h-type.t-want { background: var(--y-soft); color: #8A6A00; }
 .h-type.t-share, .h-type.t-status { background: var(--green-soft); color: var(--green); }
