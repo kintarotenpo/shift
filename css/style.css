@@ -537,6 +537,15 @@ details.hist[open] { border-color: var(--ink); }
 .undo-pair { display: inline-flex; gap: 4px; }
 .undo-pair .btn:disabled { opacity: .35; }
 
+/* CSV読込（個別） */
+.csv-list { display: grid; gap: 6px; max-height: 320px; overflow: auto; }
+.csv-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 1.5px solid var(--line2); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.csv-item input { width: 18px; height: 18px; accent-color: #000; }
+.csv-item input:disabled { opacity: .3; }
+.csv-item:has(input:checked) { border-color: var(--k); background: var(--y-soft); }
+.csv-item .muted { font-size: 12px; flex: 1; }
+.csv-tools { display: flex; gap: 6px; }
+
 /* 確認ダイアログ */
 .confirm-layer { z-index: 120; align-items: center !important; padding: 16px !important; }
 .modal.confirm { max-width: 420px; border-radius: 18px !important; }
