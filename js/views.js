@@ -7,7 +7,7 @@ const V = (() => {
     req: { s: '希望', c: 'o-req', full: '休(希望)' },
     paid: { s: '有給', c: 'o-paid', full: '休(有給)' },
     auto: { s: '自動', c: 'o-auto', full: '休(自動)' },
-    closed: { s: '臨休', c: 'o-auto', full: '休(臨時休業)' },
+    closed: { s: '臨時休', c: 'o-auto', full: '休(臨時休)' },
   };
   // 閲覧者には休みの区分を見せない（すべてグレーの「休」）
   const OFF_VIEW = { s: '', c: 'o-view', full: '休' };
@@ -41,7 +41,7 @@ const V = (() => {
       <span class="lg"><span class="offchip o-req">休</span>希望休</span>
       <span class="lg"><span class="offchip o-paid">休</span>有給</span>
       <span class="lg"><span class="offchip o-auto">休</span>自動休</span>
-      <span class="lg"><span class="offchip o-auto">臨</span>臨時休業（休日数に含めない）</span>
+      <span class="lg"><span class="offchip o-auto">休</span>臨時休（休日数に含めない）</span>
       <span class="lg"><span class="streak-chip"></span>連勤超過</span>
       <span class="lg"><span class="apr">査</span>査定員</span>
       <span class="lg"><span class="wish-chip"></span>出勤希望日</span>

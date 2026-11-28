@@ -340,6 +340,7 @@ const App = (() => {
       render();
     } else if (ch === 'onlyMe') { ui.onlyMe = el.checked; render(); }
     else if (el.name === 'ceType') updateCellEditor();
+    else if (el.name === 'csvMode' || el.dataset.csvsid !== undefined) updateCsvModal();
     else if (el.id === 'ceStore') updateCellEditor(true);
   }
 
@@ -397,6 +398,11 @@ const App = (() => {
     },
     'csv-export': csvExport,
     'csv-import': () => { $('#csvFile').value = ''; $('#csvFile').click(); },
+    'csv-apply': applyCsvImport,
+    'csv-check-all': t => {
+      document.querySelectorAll('[data-csvsid]').forEach(cb => { cb.checked = t.dataset.on === '1'; });
+      updateCsvModal();
+    },
     'export-pdf': () => exportImage('pdf'),
     'export-jpg': () => exportImage('jpg'),
     'share': openShare,
@@ -634,9 +640,9 @@ const App = (() => {
           <button class="pick" data-act="store-bulk" data-sid="${sid}" ${work ? '' : 'disabled'}>
             <b>出勤店舗一括変更</b><span class="muted">${work ? 'この月の出勤日の店舗を、すべてひとつの店舗に変更します' : '出勤日がないため変更できません'}</span></button>
           <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="shift">
-            <b>シフトのみリセット</b><span class="muted">出勤・休(自動)を消します。希望休・有給・出勤希望日は残します</span></button>
+            <b>シフトのみリセット</b><span class="muted">出勤・休(自動)を消します。希望休・有給・臨時休・出勤希望日は残します</span></button>
           <button class="pick" data-act="staff-reset" data-sid="${sid}" data-mode="all">
-            <b>すべてリセット</b><span class="muted">この月の希望休・有給・出勤希望日も含めて白紙にします</span></button>
+            <b>すべてリセット</b><span class="muted">この月の希望休・有給・臨時休・出勤希望日も含めて白紙にします</span></button>
         </div>
         <p class="tiny muted">リセット後は「シフトを作成」で「入力スタッフのみ反映」を使うと、このスタッフだけ作り直せます。「もとに戻す」で取り消しもできます。</p>
       </div>`);
@@ -710,7 +716,7 @@ const App = (() => {
       if (mon.fullWork) delete mon.fullWork[sid];
     } else {
       const keep = {};
-      for (const [d, c] of Object.entries(row)) if (c.t === 'o' && (c.k === 'req' || c.k === 'paid')) keep[d] = c;
+      for (const [d, c] of Object.entries(row)) if (c.t === 'o' && (c.k === 'req' || c.k === 'paid' || (c.k === 'closed' && c.lk))) keep[d] = c;
       mon.cells[sid] = keep;
     }
     mon.updatedAt = Date.now();
@@ -886,7 +892,7 @@ const App = (() => {
     const [y, m] = U.parseYM(ui.ym);
     const c = DB.cell(ui.ym, sid, d);
     editing = { sid, d };
-    const type = preset.store ? 'w' : (!c ? 'none' : c.t === 'w' ? 'w' : (c.k === 'closed' ? 'auto' : c.k));
+    const type = preset.store ? 'w' : (!c ? 'none' : c.t === 'w' ? 'w' : c.k);
     const curStore = preset.store || (c && c.t === 'w' ? c.s : (p.main !== 'free' ? p.main : S().stores[0]?.id));
     const stores = S().stores.map(st => {
       const sd = M.storeDay(st, y, m, d);
@@ -896,7 +902,7 @@ const App = (() => {
     const opt = (v, l) => `<label><input type="radio" name="ceType" value="${v}" ${type === v ? 'checked' : ''}><span>${l}</span></label>`;
     openModal(`${modalHead(`${U.esc(p.name)} <small>${m}/${d}（${U.WD[U.dow(y, m, d)]}）</small>`)}
       <div class="modal-body">
-        <div class="seg-radio big">${opt('w', '出勤')}${opt('req', '休(希望)')}${opt('paid', '休(有給)')}${opt('auto', '休(自動)')}${opt('none', '未設定')}</div>
+        <div class="seg-radio big">${opt('w', '出勤')}${opt('req', '休(希望)')}${opt('paid', '休(有給)')}${opt('auto', '休(自動)')}${opt('closed', '休(臨時休)')}${opt('none', '未設定')}</div>
         <div id="ceWork" class="ce-work">
           <div class="f-row"><label>店舗</label><select id="ceStore">${stores}</select></div>
           <div class="f-row"><label>勤務時間</label><div><input type="time" step="900" id="ceSt" value="${c && c.t === 'w' ? U.toHM(c.st) : ''}"> 〜
@@ -910,7 +916,7 @@ const App = (() => {
   function updateCellEditor(resetTimes) {
     const type = document.querySelector('[name="ceType"]:checked')?.value;
     $('#ceWork').hidden = type !== 'w';
-    $('#ceLockWrap').hidden = type === 'req' || type === 'paid' || type === 'none';
+    $('#ceLockWrap').hidden = type === 'req' || type === 'paid' || type === 'closed' || type === 'none';
     if (type === 'w' && (resetTimes || !$('#ceSt').value)) {
       const [y, m] = U.parseYM(ui.ym);
       const st = M.store($('#ceStore').value), p = M.staff(editing.sid);
@@ -929,6 +935,7 @@ const App = (() => {
       if (lk) v.lk = 1;
     } else if (type === 'req' || type === 'paid') v = { t: 'o', k: type };
     else if (type === 'auto') { v = { t: 'o', k: 'auto' }; if (lk) v.lk = 1; }
+    else if (type === 'closed') v = { t: 'o', k: 'closed', lk: 1 }; // 手動の臨時休は常に固定
     const before = JSON.stringify(DB.month(ui.ym).cells);
     const histSnap = monthSnap(ui.ym);
     DB.setCell(ui.ym, editing.sid, editing.d, v);
@@ -1015,19 +1022,73 @@ const App = (() => {
       parsed.push([p.id, row]);
     }
     if (!parsed.length) { toast('取り込めるスタッフの行がありませんでした'); return; }
-    let msg = `${ymLabel()}のシフトをCSVの内容（${parsed.length}名分）で上書きします。`;
-    if (unknownNames.length) msg += `\n\n※ 未登録のため無視: ${unknownNames.join('、')}`;
-    if (bad.length) msg += `\n\n※ 解釈できないセル ${bad.length}件（空欄扱い）:\n${bad.slice(0, 5).join('\n')}${bad.length > 5 ? '\n…' : ''}`;
-    if (!await ask(msg + '\n\nよろしいですか？', { ok: '読み込む' })) return;
+    csvPending = { parsed, unknownNames, bad };
+    openCsvModal();
+  }
+
+  /* CSV読込の確認：一括 or 個別（チェックしたスタッフのみ） */
+  let csvPending = null;
+  function openCsvModal() {
+    const { parsed, unknownNames, bad } = csvPending;
+    const cur = S().months[ui.ym]?.cells || {};
+    const label = c => (c ? CSV.cellText(c, S()) : '');
+    const items = parsed.map(([sid, row]) => {
+      const p = M.staff(sid);
+      const days = new Set([...Object.keys(row), ...Object.keys(cur[sid] || {})]);
+      const diff = [...days].filter(d => label(row[d]) !== label(cur[sid]?.[d])).length;
+      const work = Object.values(row).filter(c => c.t === 'w').length;
+      const off = Object.values(row).filter(c => c.t === 'o').length;
+      const badN = bad.filter(b => b.startsWith(p.name + ' ')).length;
+      return `<label class="csv-item"><input type="checkbox" data-csvsid="${sid}" disabled>
+        <b>${U.esc(p.name)}</b><span class="muted">出勤 ${work}日・休み ${off}日</span>
+        ${diff ? `<span class="chip warn">変更 ${diff}日</span>` : '<span class="chip gray">変更なし</span>'}
+        ${badN ? `<span class="chip ng">読めないセル ${badN}</span>` : ''}</label>`;
+    }).join('');
+    openModal(`${modalHead(`${ymLabel()} にCSVを読み込む`)}
+      <div class="modal-body">
+        <div class="seg-radio big">
+          <label><input type="radio" name="csvMode" value="all" checked><span>一括（${parsed.length}名すべて）</span></label>
+          <label><input type="radio" name="csvMode" value="pick"><span>個別（チェックしたスタッフのみ）</span></label>
+        </div>
+        <div class="csv-tools" id="csvTools" hidden>
+          <button class="btn sm ghost" data-act="csv-check-all" data-on="1">すべて選択</button>
+          <button class="btn sm ghost" data-act="csv-check-all" data-on="0">すべて解除</button>
+        </div>
+        <div class="csv-list">${items}</div>
+        ${unknownNames.length ? `<p class="note warn">未登録のため読み込まないスタッフ：${U.esc(unknownNames.join('、'))}</p>` : ''}
+        ${bad.length ? `<p class="note warn">解釈できないセル ${bad.length}件は空欄として読み込みます：<br>${U.esc(bad.slice(0, 5).join(' ／ '))}${bad.length > 5 ? ' …' : ''}</p>` : ''}
+        <p class="tiny muted">読み込んだスタッフのこの月のシフトは、CSVの内容で上書きされます。読み込まないスタッフは変わりません。「もとに戻す」で取り消せます。</p>
+      </div>
+      <div class="modal-foot"><button class="btn ghost" data-act="modal-close">キャンセル</button>
+        <button class="btn primary" data-act="csv-apply" id="csvApplyBtn">${parsed.length}名分を読み込む</button></div>`, 'wide');
+  }
+  function updateCsvModal() {
+    const pick = document.querySelector('[name="csvMode"]:checked')?.value === 'pick';
+    document.querySelectorAll('[data-csvsid]').forEach(cb => { cb.disabled = !pick; });
+    $('#csvTools').hidden = !pick;
+    const n = pick ? document.querySelectorAll('[data-csvsid]:checked').length : csvPending.parsed.length;
+    const btn = $('#csvApplyBtn');
+    btn.textContent = `${n}名分を読み込む`;
+    btn.disabled = n === 0;
+  }
+  function applyCsvImport() {
+    if (!csvPending) return;
+    const pick = document.querySelector('[name="csvMode"]:checked')?.value === 'pick';
+    const chosen = new Set([...document.querySelectorAll('[data-csvsid]:checked')].map(cb => cb.dataset.csvsid));
+    const targets = csvPending.parsed.filter(([sid]) => !pick || chosen.has(sid));
+    if (!targets.length) { toast('読み込むスタッフにチェックを入れてください'); return; }
     const mon = DB.month(ui.ym);
     const histBefore = JSON.stringify(mon.cells);
     const histSnap = monthSnap(ui.ym);
-    for (const [sid, row] of parsed) mon.cells[sid] = row;
-    logHistory(ui.ym, 'csv', `CSVを読み込み（${parsed.length}名分）`, histBefore);
-    record(ui.ym, 'CSVの読み込み', histSnap);
+    for (const [sid, row] of targets) mon.cells[sid] = row;
+    const names = targets.map(([sid]) => M.staff(sid)?.name).join('・');
+    logHistory(ui.ym, 'csv', pick ? `CSVを個別に読み込み（${names}）` : `CSVを一括で読み込み（${targets.length}名分）`, histBefore);
+    record(ui.ym, pick ? `CSVの読み込み（${names}）` : 'CSVの一括読み込み', histSnap);
     dropUndo();
     mon.updatedAt = Date.now();
-    DB.save(); render(); toast('CSVを読み込みました');
+    csvPending = null;
+    DB.save(); closeModal(); render();
+    toast(pick ? `${names}さんのシフトをCSVから読み込みました` : `CSVを読み込みました（${targets.length}名分）`);
   }
   async function backupImport(e) {
     const file = e.target.files[0];

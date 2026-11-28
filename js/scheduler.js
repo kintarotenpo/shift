@@ -527,7 +527,7 @@ const CSV = {
   },
   cellText(c, state) {
     if (!c) return '';
-    if (c.t === 'o') return { req: '休(希望)', paid: '休(有給)', closed: '休(臨時休業)' }[c.k] || '休(自動)';
+    if (c.t === 'o') return { req: '休(希望)', paid: '休(有給)', closed: '休(臨時休)' }[c.k] || '休(自動)';
     const st = state.stores.find(s => s.id === c.s);
     return `${st ? st.name : '?'} ${U.toHM(c.st)}-${U.toHM(c.en)}`;
   },
